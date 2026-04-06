@@ -408,17 +408,52 @@ async def enviar_cotizacion_email(
             incluir_img_producto=True,
         )
 
-        # Puerto 465 con SSL directo (Railway bloquea 587)
-        smtp = aiosmtplib.SMTP(hostname=smtp_host, port=465, use_tls=True)
-        await smtp.connect()
-        await smtp.login(remitente, password)
-        await smtp.send_message(msg_cliente)
-        logger.info(f"Email enviado al cliente: {email_cliente}")
-        await smtp.send_message(msg_interno)
-        logger.info(f"Copia interna enviada a: {copia_negocio}")
-        await smtp.quit()
+        # Resend API — funciona en Railway sin restricciones de puertos
+        resend_key = os.getenv("RESEND_API_KEY", "")
+        if not resend_key:
+            logger.error("RESEND_API_KEY no configurada — email no enviado")
+            return False
 
-        return True
+        resend_from = os.getenv("RESEND_FROM", "Imporusa <onboarding@resend.dev>")
+        headers = {
+            "Authorization": f"Bearer {resend_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Email al cliente
+            r1 = await client.post(
+                "https://api.resend.com/emails",
+                headers=headers,
+                json={
+                    "from": resend_from,
+                    "to": [email_cliente],
+                    "subject": f"Solicitud de cotización recibida — {producto[:50]}",
+                    "html": html_cliente,
+                },
+            )
+            if r1.status_code == 200:
+                logger.info(f"Email enviado al cliente: {email_cliente}")
+            else:
+                logger.error(f"Error Resend (cliente): {r1.status_code} — {r1.text}")
+
+            # Copia interna a Imporusa
+            r2 = await client.post(
+                "https://api.resend.com/emails",
+                headers=headers,
+                json={
+                    "from": resend_from,
+                    "to": [copia_negocio],
+                    "subject": f"[LEAD] Nueva cotización: {producto[:50]} — {nombre_cliente}",
+                    "html": html_interno,
+                },
+            )
+            if r2.status_code == 200:
+                logger.info(f"Copia interna enviada a: {copia_negocio}")
+            else:
+                logger.error(f"Error Resend (interno): {r2.status_code} — {r2.text}")
+
+        return r1.status_code == 200
 
     except Exception as e:
         logger.error(f"Error enviando email de cotización: {type(e).__name__}: {e}")

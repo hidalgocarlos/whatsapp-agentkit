@@ -25,21 +25,41 @@ class ProveedorWhapi(ProveedorWhatsApp):
             tipo = msg.get("type", "")
             logger.info(f"Mensaje tipo={tipo} keys={list(msg.keys())}")
 
-            # Texto simple
+            # Extraer texto según el tipo de mensaje
+            texto = ""
+
             if tipo == "text":
                 texto = msg.get("text", {}).get("body", "")
-            # Link con vista previa (extended_text)
+
             elif tipo == "extended_text":
                 texto = msg.get("extended_text", {}).get("text", "")
-            # Imagen con caption
+
+            elif tipo == "link_preview":
+                lp = msg.get("link_preview", {})
+                texto = lp.get("body", "") or lp.get("url", "") or lp.get("title", "")
+
             elif tipo == "image":
-                texto = msg.get("image", {}).get("caption", "[imagen]")
-            # Documento
+                texto = msg.get("image", {}).get("caption", "[imagen sin texto]")
+
             elif tipo == "document":
                 nombre = msg.get("document", {}).get("file_name", "documento")
                 texto = f"[documento: {nombre}]"
+
             else:
-                # Ignorar stickers, audio, video, etc.
+                # Tipo no soportado — loguear para diagnóstico
+                logger.warning(f"Tipo no soportado: {tipo} — payload: {msg}")
+                continue
+
+            # Si no hay texto, intentar extraer de cualquier campo conocido
+            if not texto:
+                for campo in ["text", "extended_text", "link_preview"]:
+                    data = msg.get(campo, {})
+                    texto = data.get("body", "") or data.get("text", "") or data.get("url", "")
+                    if texto:
+                        break
+
+            if not texto:
+                logger.warning(f"Mensaje tipo={tipo} sin texto extraíble — payload: {msg}")
                 continue
 
             mensajes.append(MensajeEntrante(
