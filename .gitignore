@@ -17,9 +17,9 @@ env/
 dist/
 build/
 
-# Knowledge (archivos privados del negocio)
-knowledge/*
-!knowledge/.gitkeep
+# Knowledge — se sube todo al repo para Railway
+# knowledge/*
+# !knowledge/.gitkeep
 
 # Logs
 logs/
