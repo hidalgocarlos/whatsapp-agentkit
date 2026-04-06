@@ -408,9 +408,10 @@ async def enviar_cotizacion_email(
             incluir_img_producto=True,
         )
 
-        # Yahoo funciona mejor con SSL en puerto 465
-        smtp = aiosmtplib.SMTP(hostname=smtp_host, port=smtp_port, use_tls=True)
+        # Gmail usa STARTTLS en puerto 587
+        smtp = aiosmtplib.SMTP(hostname=smtp_host, port=smtp_port, use_tls=False)
         await smtp.connect()
+        await smtp.starttls()
         await smtp.login(remitente, password)
         await smtp.send_message(msg_cliente)
         logger.info(f"Email enviado al cliente: {email_cliente}")
