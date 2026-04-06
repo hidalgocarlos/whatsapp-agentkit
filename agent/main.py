@@ -7,9 +7,10 @@ Funciona con cualquier proveedor (Whapi, Meta, Twilio) gracias a la capa de prov
 """
 
 import os
+import asyncio
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 
@@ -67,11 +68,71 @@ async def webhook_verificacion(request: Request):
     return {"status": "ok"}
 
 
+async def procesar_mensaje(telefono: str, texto: str):
+    """Procesa el mensaje en background para no bloquear el webhook."""
+    try:
+        log_mensaje_cliente(telefono, texto)
+
+        # Obtener historial ANTES de guardar el mensaje actual
+        historial = await obtener_historial(telefono)
+
+        # Generar respuesta con Claude
+        respuesta = await generar_respuesta(texto, historial)
+
+        # Detectar si Ana incluye el comando ENVIAR_COTIZACION
+        # Formato: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email|telefono
+        comando = None
+        for linea in respuesta.splitlines():
+            if linea.strip().startswith("ENVIAR_COTIZACION|"):
+                comando = linea.strip()
+                break
+
+        if comando:
+            respuesta = respuesta.replace(comando, "").strip()
+            partes = comando.split("|")
+            if len(partes) == 7:
+                _, nombre, producto, link, cantidad, email_cliente, _ = partes
+                exito = await enviar_cotizacion_email(
+                    email_cliente=email_cliente.strip(),
+                    nombre_cliente=nombre.strip(),
+                    producto=producto.strip(),
+                    link=link.strip(),
+                    cantidad=int(cantidad.strip()) if cantidad.strip().isdigit() else 1,
+                    telefono_cliente=telefono,
+                )
+                log_cotizacion(
+                    telefono=telefono,
+                    nombre=nombre.strip(),
+                    producto=producto.strip(),
+                    link=link.strip(),
+                    cantidad=int(cantidad.strip()) if cantidad.strip().isdigit() else 1,
+                    email=email_cliente.strip(),
+                    exito=exito,
+                )
+                if not exito:
+                    respuesta += f"\n\n⚠️ Tuve un problema enviando el email a {email_cliente.strip()}. ¿Podrías verificar que el correo esté bien escrito?"
+
+        # Guardar mensaje del usuario Y respuesta del agente en memoria
+        await guardar_mensaje(telefono, "user", texto)
+        await guardar_mensaje(telefono, "assistant", respuesta)
+
+        log_respuesta_ana(telefono, respuesta)
+
+        # Enviar respuesta por WhatsApp via el proveedor
+        await proveedor.enviar_mensaje(telefono, respuesta)
+
+        logger.info(f"Respuesta a {telefono}: {respuesta}")
+
+    except Exception as e:
+        logger.error(f"Error procesando mensaje de {telefono}: {e}")
+        log_error("procesar_mensaje", str(e))
+
+
 @app.post("/webhook")
-async def webhook_handler(request: Request):
+async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
     """
     Recibe mensajes de WhatsApp via el proveedor configurado.
-    Procesa el mensaje, genera respuesta con Claude y la envía de vuelta.
+    Responde 200 OK inmediatamente y procesa en background para evitar timeouts.
     """
     try:
         # Parsear webhook — el proveedor normaliza el formato
@@ -83,57 +144,9 @@ async def webhook_handler(request: Request):
                 continue
 
             logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
-            log_mensaje_cliente(msg.telefono, msg.texto)
 
-            # Obtener historial ANTES de guardar el mensaje actual
-            historial = await obtener_historial(msg.telefono)
-
-            # Generar respuesta con Claude
-            respuesta = await generar_respuesta(msg.texto, historial)
-
-            # Detectar si Ana incluye el comando ENVIAR_COTIZACION en cualquier parte de la respuesta
-            # Formato: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email|telefono
-            comando = None
-            for linea in respuesta.splitlines():
-                if linea.strip().startswith("ENVIAR_COTIZACION|"):
-                    comando = linea.strip()
-                    break
-
-            if comando:
-                respuesta = respuesta.replace(comando, "").strip()
-                partes = comando.split("|")
-                if len(partes) == 7:
-                    _, nombre, producto, link, cantidad, email_cliente, _ = partes
-                    exito = await enviar_cotizacion_email(
-                        email_cliente=email_cliente.strip(),
-                        nombre_cliente=nombre.strip(),
-                        producto=producto.strip(),
-                        link=link.strip(),
-                        cantidad=int(cantidad.strip()) if cantidad.strip().isdigit() else 1,
-                        telefono_cliente=msg.telefono,
-                    )
-                    log_cotizacion(
-                        telefono=msg.telefono,
-                        nombre=nombre.strip(),
-                        producto=producto.strip(),
-                        link=link.strip(),
-                        cantidad=int(cantidad.strip()) if cantidad.strip().isdigit() else 1,
-                        email=email_cliente.strip(),
-                        exito=exito,
-                    )
-                    if not exito:
-                        respuesta += f"\n\n⚠️ Tuve un problema enviando el email a {email_cliente.strip()}. ¿Podrías verificar que el correo esté bien escrito?"
-
-            # Guardar mensaje del usuario Y respuesta del agente en memoria
-            await guardar_mensaje(msg.telefono, "user", msg.texto)
-            await guardar_mensaje(msg.telefono, "assistant", respuesta)
-
-            log_respuesta_ana(msg.telefono, respuesta)
-
-            # Enviar respuesta por WhatsApp via el proveedor
-            await proveedor.enviar_mensaje(msg.telefono, respuesta)
-
-            logger.info(f"Respuesta a {msg.telefono}: {respuesta}")
+            # Procesar en background — responde 200 OK antes de llamar a Claude
+            background_tasks.add_task(procesar_mensaje, msg.telefono, msg.texto)
 
         return {"status": "ok"}
 
