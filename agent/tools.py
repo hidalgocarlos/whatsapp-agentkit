@@ -234,27 +234,29 @@ async def enviar_cotizacion_email(
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     fecha_legible = datetime.now().strftime("%d de %B de %Y")
 
-    # ── Cargar logo como base64 para embeber en HTML ─────────
+    # ── Cargar logo como base64 inline (compatible con Resend) ──
     logo_path = os.path.join("knowledge", "logo imporusa.png")
-    logo_cid = "logo_imporusa"
-    logo_data = None
+    logo_tag = '<h2 style="color:#1a1a2e;">Imporusa</h2>'
     if os.path.exists(logo_path):
         with open(logo_path, "rb") as f:
-            logo_data = f.read()
+            logo_b64 = base64.b64encode(f.read()).decode()
+        logo_tag = f'<img src="data:image/png;base64,{logo_b64}" alt="Imporusa" style="max-width:200px; margin-bottom:20px;">'
 
-    # ── Descargar imagen principal del producto desde el link ─
-    producto_img_cid = "producto_imagen"
+    # ── Descargar imagen del producto e incrustar como base64 ──
     producto_img_data = await obtener_imagen_producto(link) if link else None
 
     # ── HTML del email al cliente ────────────────────────────
-    logo_tag = f'<img src="cid:{logo_cid}" alt="Imporusa" style="max-width:200px; margin-bottom:20px;">' if logo_data else '<h2 style="color:#1a1a2e;">Imporusa</h2>'
     link_html = f'<a href="{link}" style="color:#0066cc;">{link[:60]}...</a>' if link else "No proporcionado"
-    producto_img_tag = (
-        f'<tr><td align="center" style="padding:20px 40px 0;">'
-        f'<img src="cid:{producto_img_cid}" alt="{producto}" '
-        f'style="max-width:300px; max-height:300px; border-radius:8px; border:1px solid #eee;">'
-        f'</td></tr>'
-    ) if producto_img_data else ""
+    if producto_img_data:
+        producto_img_b64 = base64.b64encode(producto_img_data).decode()
+        producto_img_tag = (
+            f'<tr><td align="center" style="padding:20px 40px 0;">'
+            f'<img src="data:image/jpeg;base64,{producto_img_b64}" alt="{producto}" '
+            f'style="max-width:300px; max-height:300px; border-radius:8px; border:1px solid #eee;">'
+            f'</td></tr>'
+        )
+    else:
+        producto_img_tag = ""
 
     html_cliente = f"""
 <!DOCTYPE html>
