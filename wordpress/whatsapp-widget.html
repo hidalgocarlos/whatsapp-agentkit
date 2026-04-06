@@ -1,0 +1,151 @@
+<!-- ============================================================
+     Imporusa — Widget WhatsApp flotante
+     Instrucciones: pega este código en WordPress usando el plugin
+     "Insert Headers and Footers" → sección Footer
+     ============================================================ -->
+
+<style>
+  /* Botón flotante */
+  #imporusa-wa-btn {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    font-family: Arial, sans-serif;
+  }
+
+  /* Burbuja de mensaje */
+  #imporusa-wa-bubble {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    padding: 14px 18px;
+    max-width: 240px;
+    font-size: 14px;
+    color: #333;
+    line-height: 1.5;
+    display: none;
+    animation: fadeIn 0.3s ease;
+  }
+
+  #imporusa-wa-bubble strong {
+    display: block;
+    color: #1a1a2e;
+    margin-bottom: 4px;
+    font-size: 15px;
+  }
+
+  #imporusa-wa-bubble .wa-close {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    cursor: pointer;
+    font-size: 16px;
+    color: #999;
+    line-height: 1;
+  }
+
+  #imporusa-wa-bubble {
+    position: relative;
+  }
+
+  /* Círculo verde del botón */
+  #imporusa-wa-circle {
+    width: 60px;
+    height: 60px;
+    background: #25D366;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(37,211,102,0.5);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  #imporusa-wa-circle:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 20px rgba(37,211,102,0.6);
+  }
+
+  #imporusa-wa-circle svg {
+    width: 32px;
+    height: 32px;
+    fill: #fff;
+  }
+
+  /* Indicador de online */
+  #imporusa-wa-circle::after {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    background: #4caf50;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    top: 2px;
+    right: 2px;
+  }
+
+  #imporusa-wa-circle {
+    position: relative;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Móvil */
+  @media (max-width: 480px) {
+    #imporusa-wa-btn { bottom: 18px; right: 18px; }
+    #imporusa-wa-bubble { max-width: 200px; font-size: 13px; }
+  }
+</style>
+
+<div id="imporusa-wa-btn">
+  <!-- Burbuja de bienvenida -->
+  <div id="imporusa-wa-bubble">
+    <span class="wa-close" onclick="cerrarBurbuja()">✕</span>
+    <strong>¡Hola! Soy Ana 👋</strong>
+    ¿Buscas un producto de EE.UU., China o Europa?<br>
+    Te cotizamos y lo traemos a tu puerta en Cali 📦
+  </div>
+
+  <!-- Botón WhatsApp -->
+  <div id="imporusa-wa-circle" onclick="abrirWhatsApp()">
+    <!-- Ícono oficial de WhatsApp -->
+    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+      <path d="M16 0C7.164 0 0 7.163 0 16c0 2.822.737 5.469 2.027 7.773L0 32l8.469-2.001A15.93 15.93 0 0016 32c8.836 0 16-7.163 16-16S24.836 0 16 0zm8.406 22.594c-.352.992-2.047 1.898-2.82 1.953-.773.055-1.523.367-5.133-1.07-4.352-1.727-7.137-6.148-7.352-6.43-.211-.281-1.727-2.297-1.727-4.383s1.078-3.117 1.477-3.547c.398-.43.867-.539 1.156-.539.289 0 .578.004.828.016.266.012.625-.102.977.746.359.859 1.219 2.969 1.328 3.18.109.211.18.461.035.742-.148.281-.219.453-.43.703-.211.25-.445.559-.633.75-.211.211-.43.438-.184.859.246.422 1.094 1.805 2.348 2.922 1.613 1.438 2.973 1.883 3.395 2.094.422.211.668.176.914-.105.246-.281 1.055-1.23 1.336-1.652.281-.422.563-.352.949-.211.387.141 2.469 1.164 2.891 1.375.422.211.703.316.805.492.102.176.102 1.008-.25 2z"/>
+    </svg>
+  </div>
+</div>
+
+<script>
+  var WA_NUMBER = "573172810773";
+  var WA_MENSAJE = "Hola Ana! Visité imporusa.com y quiero información sobre un producto.";
+  var burbujaVista = false;
+
+  // Mostrar burbuja automáticamente después de 4 segundos
+  setTimeout(function() {
+    if (!burbujaVista && !sessionStorage.getItem("wa_burbuja_cerrada")) {
+      document.getElementById("imporusa-wa-bubble").style.display = "block";
+      burbujaVista = true;
+    }
+  }, 4000);
+
+  function cerrarBurbuja() {
+    document.getElementById("imporusa-wa-bubble").style.display = "none";
+    sessionStorage.setItem("wa_burbuja_cerrada", "1");
+  }
+
+  function abrirWhatsApp() {
+    cerrarBurbuja();
+    var url = "https://wa.me/" + WA_NUMBER + "?text=" + encodeURIComponent(WA_MENSAJE);
+    window.open(url, "_blank");
+  }
+</script>

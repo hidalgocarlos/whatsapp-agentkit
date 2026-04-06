@@ -1,0 +1,46 @@
+# Configuración del negocio — Generado por AgentKit
+negocio:
+  nombre: "Imporusa"
+  sitio_web: "imporusa.com"
+  descripcion: >
+    Imporusa es un servicio de personal shopping e importación con sede en Cali, Colombia.
+    Nos encargamos de todo: buscamos, compramos y entregamos en la puerta del cliente productos
+    internacionales y de difícil consecución. Operamos con fuentes en Estados Unidos, China,
+    Europa y proveedores nacionales. Contamos con más de 20 años de experiencia, bodega y
+    casillero propio en Miami, y cuenta bancaria activa en EE.UU. que permite comprar en
+    cualquier tienda internacional sin restricciones.
+  ubicacion: "Cali, Colombia"
+  horario: "Lunes a Viernes 9am a 6pm, Sábados 10am a 2pm"
+  redes_sociales:
+    - Instagram
+    - Facebook
+
+servicios:
+  tiempo_entrega: "8 días desde ingreso a Miami hasta domicilio en Cali"
+  entrega: "Última milla a domicilio via mensajero"
+  metodos_pago:
+    - "Transferencia bancaria"
+    - "ePayco (enlace de pago)"
+  comision: "Entre el 10% y el 20% sobre el valor del producto"
+  pedido_minimo: "$300.000 COP"
+
+especialidades:
+  - "Electrónica: laptops, tablets, smartphones, wearables"
+  - "Ropa y moda"
+  - "Repuestos automotrices"
+  - "Productos de difícil consecución en Colombia"
+
+agente:
+  nombre: "Ana - Imporusa"
+  tono: "Empático y cálido"
+  casos_de_uso:
+    - "Responder preguntas frecuentes"
+    - "Calificar y atender leads / ventas"
+    - "Tomar pedidos"
+    - "Soporte post-venta"
+    - "Cotizaciones"
+
+metadata:
+  creado: "2026-04-05"
+  version: "1.0"
+  proveedor_whatsapp: "whapi"
