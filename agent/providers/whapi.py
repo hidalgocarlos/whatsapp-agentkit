@@ -23,6 +23,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
         mensajes = []
         for msg in body.get("messages", []):
             tipo = msg.get("type", "")
+            logger.info(f"Mensaje tipo={tipo} keys={list(msg.keys())}")
 
             # Texto simple
             if tipo == "text":
