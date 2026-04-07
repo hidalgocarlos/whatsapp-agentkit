@@ -497,6 +497,89 @@ async def enviar_cotizacion_email(
         return False
 
 
+async def buscar_web(query: str) -> str:
+    """
+    Busca información actualizada en internet usando Tavily.
+    Retorna un resumen con los resultados más relevantes.
+    """
+    api_key = os.getenv("TAVILY_API_KEY", "")
+    if not api_key:
+        return "Búsqueda web no disponible (TAVILY_API_KEY no configurada)."
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": api_key,
+                    "query": query,
+                    "search_depth": "basic",
+                    "max_results": 5,
+                    "include_answer": True,
+                }
+            )
+            if r.status_code != 200:
+                logger.error(f"Error Tavily: {r.status_code} — {r.text[:200]}")
+                return "No se pudo realizar la búsqueda en este momento."
+
+            data = r.json()
+            answer = data.get("answer", "")
+            results = data.get("results", [])
+
+            output = ""
+            if answer:
+                output += f"Respuesta directa: {answer}\n\n"
+
+            for res in results[:4]:
+                title = res.get("title", "")
+                content = res.get("content", "")[:400]
+                url = res.get("url", "")
+                output += f"📌 {title}\n{content}\nFuente: {url}\n\n"
+
+            logger.info(f"Búsqueda Tavily: '{query}' — {len(results)} resultados")
+            return output.strip() or "No se encontraron resultados."
+
+    except Exception as e:
+        logger.error(f"Error Tavily: {e}")
+        return f"Error en la búsqueda: {e}"
+
+
+async def obtener_pagina(url: str) -> str:
+    """
+    Extrae el contenido de texto de una URL. Útil para leer páginas de producto,
+    artículos, fichas técnicas, precios en tiendas, etc.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=15,
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"}
+        ) as client:
+            r = await client.get(url)
+            if r.status_code != 200:
+                return f"No se pudo acceder a la página (código {r.status_code})."
+
+            soup = BeautifulSoup(r.text, "html.parser")
+
+            # Eliminar elementos que no aportan contenido
+            for tag in soup(["script", "style", "nav", "footer", "header", "aside", "iframe"]):
+                tag.decompose()
+
+            title = soup.find("title")
+            title_text = title.get_text().strip() if title else ""
+
+            # Extraer texto limpio
+            lines = [l.strip() for l in soup.get_text(separator="\n").splitlines() if l.strip()]
+            content = "\n".join(lines[:120])
+
+            logger.info(f"Página obtenida: {url[:80]}")
+            return f"Título: {title_text}\n\nContenido:\n{content[:3500]}"
+
+    except Exception as e:
+        logger.error(f"Error obteniendo página {url}: {e}")
+        return f"No se pudo acceder a la página: {e}"
+
+
 async def crear_prospecto_notion(
     nombre: str,
     email: str,
