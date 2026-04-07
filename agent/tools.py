@@ -623,17 +623,35 @@ async def crear_prospecto_notion(
         },
     }
 
-    # Agregar resumen del chat como contenido de la página si existe
+    # Agregar resumen del chat como contenido de la página
+    # Notion limita cada bloque a 2000 caracteres, así que dividimos en chunks
     if resumen_chat:
-        payload["children"] = [
-            {
+        bloques = []
+        # Dividir en trozos de máximo 2000 caracteres sin cortar palabras
+        texto_restante = resumen_chat
+        while texto_restante:
+            if len(texto_restante) <= 2000:
+                trozo = texto_restante
+                texto_restante = ""
+            else:
+                # Buscar el último salto de línea antes del límite
+                corte = texto_restante[:2000].rfind("\n")
+                if corte < 500:
+                    # Si no hay buen punto de corte, cortar en espacio
+                    corte = texto_restante[:2000].rfind(" ")
+                if corte < 100:
+                    corte = 2000
+                trozo = texto_restante[:corte]
+                texto_restante = texto_restante[corte:].lstrip()
+
+            bloques.append({
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "rich_text": [{"text": {"content": resumen_chat[:2000]}}]
+                    "rich_text": [{"text": {"content": trozo}}]
                 }
-            }
-        ]
+            })
+        payload["children"] = bloques
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:

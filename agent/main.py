@@ -123,6 +123,21 @@ async def procesar_mensaje(telefono: str, texto: str):
                     logger.error(f"Error en log_cotizacion: {e_log}")
 
                 # Notion — independiente del email
+                # Construir resumen con la conversación completa de WhatsApp
+                lineas_chat = []
+                for msg in historial:
+                    prefijo = "Cliente" if msg["role"] == "user" else "Ana"
+                    lineas_chat.append(f"{prefijo}: {msg['content']}")
+                lineas_chat.append(f"Cliente: {texto}")
+                lineas_chat.append(f"Ana: {respuesta}")
+                resumen_completo = (
+                    f"Producto: {producto.strip()}\n"
+                    f"Link: {link.strip()}\n"
+                    f"Cantidad: {cantidad.strip()}\n\n"
+                    f"--- Conversacion WhatsApp ---\n"
+                    + "\n".join(lineas_chat)
+                )
+
                 logger.info(f"[NOTION] Guardando prospecto: {nombre.strip()} — {email_cliente.strip()}")
                 try:
                     exito_notion = await crear_prospecto_notion(
@@ -130,7 +145,7 @@ async def procesar_mensaje(telefono: str, texto: str):
                         email=email_cliente.strip(),
                         whatsapp=telefono,
                         producto=producto.strip(),
-                        resumen_chat=f"Producto: {producto.strip()}\nLink: {link.strip()}\nCantidad: {cantidad.strip()}",
+                        resumen_chat=resumen_completo,
                     )
                     logger.info(f"[NOTION] Resultado: {'OK' if exito_notion else 'FALLO'}")
                 except Exception as e_notion:
