@@ -222,15 +222,11 @@ async def enviar_cotizacion_email(
     Returns:
         True si el envío fue exitoso
     """
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    _meses = {
-        "January": "Enero", "February": "Febrero", "March": "Marzo",
-        "April": "Abril", "May": "Mayo", "June": "Junio",
-        "July": "Julio", "August": "Agosto", "September": "Septiembre",
-        "October": "Octubre", "November": "Noviembre", "December": "Diciembre",
-    }
-    _fecha_raw = datetime.now().strftime("%d de %B de %Y")
-    fecha_legible = _fecha_raw.replace(datetime.now().strftime("%B"), _meses[datetime.now().strftime("%B")])
+    _ahora = datetime.now()
+    timestamp = _ahora.strftime("%Y-%m-%d %H:%M")
+    _meses = ["Enero","Febrero","Marzo","Abril","Mayo","Junio",
+              "Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"]
+    fecha_legible = f"{_ahora.day:02d} de {_meses[_ahora.month - 1]} de {_ahora.year}"
     copia_negocio = os.getenv("EMAIL_COPIA_NEGOCIO", "imporusa@yahoo.com")
 
     # ── Cargar logo como base64 inline (compatible con Resend) ──

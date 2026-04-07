@@ -109,27 +109,32 @@ async def procesar_mensaje(telefono: str, texto: str):
                 except Exception as e_email:
                     logger.error(f"Error enviando email: {type(e_email).__name__}: {e_email}")
 
-                log_cotizacion(
-                    telefono=telefono,
-                    nombre=nombre.strip(),
-                    producto=producto.strip(),
-                    link=link.strip(),
-                    cantidad=cant_int,
-                    email=email_cliente.strip(),
-                    exito=exito_email,
-                )
-
-                # Notion — fallo aquí no cancela la respuesta
                 try:
-                    await crear_prospecto_notion(
+                    log_cotizacion(
+                        telefono=telefono,
+                        nombre=nombre.strip(),
+                        producto=producto.strip(),
+                        link=link.strip(),
+                        cantidad=cant_int,
+                        email=email_cliente.strip(),
+                        exito=exito_email,
+                    )
+                except Exception as e_log:
+                    logger.error(f"Error en log_cotizacion: {e_log}")
+
+                # Notion — independiente del email
+                logger.info(f"[NOTION] Guardando prospecto: {nombre.strip()} — {email_cliente.strip()}")
+                try:
+                    exito_notion = await crear_prospecto_notion(
                         nombre=nombre.strip(),
                         email=email_cliente.strip(),
                         whatsapp=telefono,
                         producto=producto.strip(),
                         resumen_chat=f"Producto: {producto.strip()}\nLink: {link.strip()}\nCantidad: {cantidad.strip()}",
                     )
+                    logger.info(f"[NOTION] Resultado: {'OK' if exito_notion else 'FALLO'}")
                 except Exception as e_notion:
-                    logger.error(f"Error creando prospecto Notion: {type(e_notion).__name__}: {e_notion}")
+                    logger.error(f"[NOTION] Excepcion: {type(e_notion).__name__}: {e_notion}")
 
                 if not exito_email:
                     respuesta += f"\n\n⚠️ Tuve un problema enviando el email a {email_cliente.strip()}. ¿Podrías verificar que el correo esté bien escrito?"
