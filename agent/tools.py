@@ -296,6 +296,53 @@ async def enviar_cotizacion_email(
     fecha_legible = f"{_ahora.day:02d} de {_meses[_ahora.month - 1]} de {_ahora.year}"
     copia_negocio = os.getenv("EMAIL_COPIA_NEGOCIO", "imporusa@yahoo.com")
 
+    # ── Obtener TRM del día para incluir en el email ──
+    trm_valor = ""
+    trm_fecha = ""
+    try:
+        if _trm_cache["valor"] and _trm_cache["timestamp"]:
+            edad_horas = (datetime.now() - _trm_cache["timestamp"]).total_seconds() / 3600
+            if edad_horas < 6:
+                trm_valor = _trm_cache["valor"]
+                trm_fecha = _trm_cache["fecha"]
+        if not trm_valor:
+            # Consultar la API directamente
+            async with httpx.AsyncClient(timeout=10) as trm_client:
+                r_trm = await trm_client.get(
+                    "https://www.datos.gov.co/resource/32sa-8pi3.json",
+                    params={"$order": "vigenciadesde DESC", "$limit": "1"},
+                )
+                if r_trm.status_code == 200:
+                    data_trm = r_trm.json()
+                    if data_trm:
+                        val = data_trm[0].get("valor", "")
+                        try:
+                            trm_valor = f"{float(val):,.2f}"
+                        except (ValueError, TypeError):
+                            trm_valor = val
+                        trm_fecha = data_trm[0].get("vigenciadesde", "")[:10]
+                        # Actualizar cache
+                        _trm_cache["valor"] = trm_valor
+                        _trm_cache["fecha"] = trm_fecha
+                        _trm_cache["timestamp"] = datetime.now()
+    except Exception as e_trm:
+        logger.warning(f"[EMAIL] No se pudo obtener TRM para el email: {e_trm}")
+
+    trm_html_cliente = ""
+    trm_html_interno = ""
+    if trm_valor:
+        trm_html_cliente = (
+            f'<tr style="background-color:#f0fdf4;">'
+            f'<td style="padding:12px 16px;font-size:14px;color:#6b7280;border-bottom:1px solid #f3f4f6;">💱 TRM del día</td>'
+            f'<td style="padding:12px 16px;font-size:14px;color:#16a34a;font-weight:700;border-bottom:1px solid #f3f4f6;">'
+            f'1 USD = {trm_valor} COP <span style="font-size:11px;color:#6b7280;font-weight:400;">({trm_fecha})</span></td>'
+            f'</tr>'
+        )
+        trm_html_interno = (
+            f'<tr><td style="color:#666;">💱 TRM</td>'
+            f'<td><strong style="color:#16a34a;">1 USD = {trm_valor} COP</strong> ({trm_fecha})</td></tr>'
+        )
+
     # ── Cargar logo como base64 inline (compatible con Resend) ──
     logo_path = os.path.join("knowledge", "logo imporusa.png")
     logo_tag = '<h2 style="color:#1a1a2e;">Imporusa</h2>'
@@ -408,6 +455,7 @@ async def enviar_cotizacion_email(
           <td style="padding:12px 16px;font-size:14px;color:#6b7280;">📅 Fecha</td>
           <td style="padding:12px 16px;font-size:14px;color:#111827;">{fecha_legible}</td>
         </tr>
+        {trm_html_cliente}
       </table>
 
       <!-- CTA Button -->
@@ -499,6 +547,7 @@ async def enviar_cotizacion_email(
         <tr style="background:#f8f9fa;"><td style="color:#666;">🔗 Link</td><td>{link if link else "No proporcionado"}</td></tr>
         <tr><td style="color:#666;">🔢 Cantidad</td><td>{cantidad}</td></tr>
         <tr style="background:#f8f9fa;"><td style="color:#666;">🕐 Fecha/hora</td><td>{timestamp}</td></tr>
+        {trm_html_interno}
       </table>
     </td></tr>
   </table>

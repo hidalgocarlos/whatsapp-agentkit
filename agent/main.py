@@ -60,6 +60,28 @@ async def health_check():
     return {"status": "ok", "agente": "Ana - Imporusa", "service": "agentkit"}
 
 
+@app.get("/test-notion")
+async def test_notion():
+    """
+    Endpoint de diagnóstico — crea un prospecto de prueba en Notion.
+    Acceder: https://tu-app.up.railway.app/test-notion
+    """
+    try:
+        resultado = await crear_prospecto_notion(
+            nombre="Test Diagnóstico",
+            email="test@imporusa.com",
+            whatsapp="573001234567",
+            producto="Producto de prueba — diagnóstico automático",
+            resumen_chat="Este es un prospecto de prueba creado desde /test-notion para verificar la conexión con Notion.",
+        )
+        if resultado:
+            return {"status": "ok", "notion": "Prospecto creado exitosamente. Revisa tu base de datos en Notion."}
+        else:
+            return {"status": "error", "notion": "La función retornó False. Revisa los logs para ver el error HTTP."}
+    except Exception as e:
+        return {"status": "error", "notion": f"Excepción: {type(e).__name__}: {e}"}
+
+
 @app.get("/webhook")
 async def webhook_verificacion(request: Request):
     """Verificación GET del webhook (requerido por Meta Cloud API, no-op para otros)."""
