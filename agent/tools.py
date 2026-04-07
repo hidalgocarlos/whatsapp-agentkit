@@ -495,3 +495,81 @@ async def enviar_cotizacion_email(
     except Exception as e:
         logger.error(f"Error enviando email de cotización: {type(e).__name__}: {e}")
         return False
+
+
+async def crear_prospecto_notion(
+    nombre: str,
+    email: str,
+    whatsapp: str,
+    producto: str,
+    resumen_chat: str = "",
+) -> bool:
+    """
+    Crea un nuevo prospecto en la base de datos de Notion.
+    Se llama automáticamente cuando Ana recopila todos los datos de cotización.
+    """
+    notion_token = os.getenv("NOTION_TOKEN", "")
+    notion_db = os.getenv("NOTION_DB_ID", "")
+
+    if not notion_token or not notion_db:
+        logger.warning("NOTION_TOKEN o NOTION_DB_ID no configurados — prospecto no guardado")
+        return False
+
+    headers = {
+        "Authorization": f"Bearer {notion_token}",
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28",
+    }
+
+    payload = {
+        "parent": {"database_id": notion_db},
+        "properties": {
+            "Nombre": {
+                "title": [{"text": {"content": nombre}}]
+            },
+            "Email": {
+                "email": email
+            },
+            "WhatsApp": {
+                "phone_number": whatsapp.replace("@s.whatsapp.net", "").replace("+", "")
+            },
+            "Producto": {
+                "rich_text": [{"text": {"content": producto[:200]}}]
+            },
+            "Estado": {
+                "select": {"name": "Nuevo"}
+            },
+            "Fecha": {
+                "date": {"start": datetime.now().strftime("%Y-%m-%d")}
+            },
+        },
+    }
+
+    # Agregar resumen del chat como contenido de la página si existe
+    if resumen_chat:
+        payload["children"] = [
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{"text": {"content": resumen_chat[:2000]}}]
+                }
+            }
+        ]
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(
+                "https://api.notion.com/v1/pages",
+                headers=headers,
+                json=payload,
+            )
+            if r.status_code == 200:
+                logger.info(f"Prospecto creado en Notion: {nombre} — {email}")
+                return True
+            else:
+                logger.error(f"Error Notion: {r.status_code} — {r.text}")
+                return False
+    except Exception as e:
+        logger.error(f"Error creando prospecto en Notion: {type(e).__name__}: {e}")
+        return False

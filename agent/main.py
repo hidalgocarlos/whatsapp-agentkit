@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from agent.brain import generar_respuesta, cargar_knowledge
 from agent.memory import inicializar_db, guardar_mensaje, obtener_historial
 from agent.providers import obtener_proveedor
-from agent.tools import enviar_cotizacion_email
+from agent.tools import enviar_cotizacion_email, crear_prospecto_notion
 from agent.session_logger import (
     log_mensaje_cliente, log_respuesta_ana,
     log_cotizacion, log_error, log_inicio_sesion,
@@ -109,6 +109,13 @@ async def procesar_mensaje(telefono: str, texto: str):
                     cantidad=int(cantidad.strip()) if cantidad.strip().isdigit() else 1,
                     email=email_cliente.strip(),
                     exito=exito,
+                )
+                await crear_prospecto_notion(
+                    nombre=nombre.strip(),
+                    email=email_cliente.strip(),
+                    whatsapp=telefono,
+                    producto=producto.strip(),
+                    resumen_chat=f"Producto: {producto.strip()}\nLink: {link.strip()}\nCantidad: {cantidad.strip()}",
                 )
                 if not exito:
                     respuesta += f"\n\n⚠️ Tuve un problema enviando el email a {email_cliente.strip()}. ¿Podrías verificar que el correo esté bien escrito?"
