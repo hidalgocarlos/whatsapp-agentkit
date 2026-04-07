@@ -636,10 +636,11 @@ async def crear_prospecto_notion(
             else:
                 # Buscar el último salto de línea antes del límite
                 corte = texto_restante[:2000].rfind("\n")
-                if corte < 500:
-                    # Si no hay buen punto de corte, cortar en espacio
+                if corte < 0:
+                    # No hay salto de línea — cortar en el último espacio
                     corte = texto_restante[:2000].rfind(" ")
-                if corte < 100:
+                if corte < 0:
+                    # Sin espacios ni saltos — cortar en el límite duro
                     corte = 2000
                 trozo = texto_restante[:corte]
                 texto_restante = texto_restante[corte:].lstrip()
