@@ -16,6 +16,9 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger("agentkit")
 
+# ── Cache de TRM para no consultar la API en cada mensaje ──
+_trm_cache: dict = {"valor": None, "fecha": None, "timestamp": None}
+
 
 def cargar_info_negocio() -> dict:
     """Carga la información del negocio desde business.yaml."""
@@ -139,6 +142,70 @@ def registrar_solicitud_cotizacion(telefono: str, producto: str, link: str = "")
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     logger.info(f"[COTIZACIÓN] {timestamp} | Tel: {telefono} | Producto: {producto} | Link: {link}")
     return f"Solicitud registrada para: {producto}"
+
+
+async def obtener_trm() -> str:
+    """
+    Obtiene la Tasa Representativa del Mercado (TRM) del día desde datos.gov.co.
+    La TRM es el tipo de cambio oficial USD → COP del Banco de la República de Colombia.
+    Usa cache de 6 horas para no abusar de la API.
+
+    Returns:
+        String con el valor de la TRM, fecha de vigencia e instrucciones de uso.
+    """
+    global _trm_cache
+
+    # Verificar cache (válido por 6 horas)
+    if _trm_cache["valor"] and _trm_cache["timestamp"]:
+        edad_horas = (datetime.now() - _trm_cache["timestamp"]).total_seconds() / 3600
+        if edad_horas < 6:
+            logger.info(f"[TRM] Usando cache: ${_trm_cache['valor']} COP (edad: {edad_horas:.1f}h)")
+            return (
+                f"TRM del día ({_trm_cache['fecha']}): 1 USD = {_trm_cache['valor']} COP.\n"
+                f"Fuente: Banco de la República (datos.gov.co).\n"
+                f"Para convertir: multiplica el precio en USD por {_trm_cache['valor']}."
+            )
+
+    try:
+        url = "https://www.datos.gov.co/resource/32sa-8pi3.json"
+        params = {"$order": "vigenciadesde DESC", "$limit": "1"}
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url, params=params)
+            if r.status_code != 200:
+                logger.error(f"[TRM] Error API datos.gov.co: {r.status_code}")
+                return "No pude obtener la TRM en este momento. Usa un valor aproximado de referencia."
+
+            data = r.json()
+            if not data:
+                return "No se encontraron datos de TRM disponibles."
+
+            registro = data[0]
+            valor = registro.get("valor", "")
+            vigencia = registro.get("vigenciadesde", "")[:10]  # Solo YYYY-MM-DD
+
+            # Formatear valor (puede venir como "4150.32")
+            try:
+                valor_float = float(valor)
+                valor_formateado = f"{valor_float:,.2f}"
+            except (ValueError, TypeError):
+                valor_formateado = valor
+
+            # Actualizar cache
+            _trm_cache["valor"] = valor_formateado
+            _trm_cache["fecha"] = vigencia
+            _trm_cache["timestamp"] = datetime.now()
+
+            logger.info(f"[TRM] Obtenida: 1 USD = {valor_formateado} COP (vigencia: {vigencia})")
+            return (
+                f"TRM del día ({vigencia}): 1 USD = {valor_formateado} COP.\n"
+                f"Fuente: Banco de la República (datos.gov.co).\n"
+                f"Para convertir: multiplica el precio en USD por {valor_formateado}."
+            )
+
+    except Exception as e:
+        logger.error(f"[TRM] Error consultando TRM: {type(e).__name__}: {e}")
+        return "Error al consultar la TRM. Intenta de nuevo en un momento."
 
 
 async def obtener_imagen_producto(url: str) -> bytes | None:
@@ -599,6 +666,9 @@ async def crear_prospecto_notion(
         "Notion-Version": "2022-06-28",
     }
 
+    # Truncar resumen para la propiedad "Texto" (rich_text máximo 2000 chars)
+    texto_propiedad = resumen_chat[:2000] if resumen_chat else ""
+
     payload = {
         "parent": {"database_id": notion_db},
         "properties": {
@@ -619,6 +689,9 @@ async def crear_prospecto_notion(
             },
             "Fecha": {
                 "date": {"start": datetime.now().strftime("%Y-%m-%d")}
+            },
+            "Texto": {
+                "rich_text": [{"text": {"content": texto_propiedad}}] if texto_propiedad else []
             },
         },
     }
@@ -656,17 +729,19 @@ async def crear_prospecto_notion(
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
+            logger.info(f"[NOTION] Enviando prospecto: {nombre} | Email: {email} | Producto: {producto[:50]} | Texto: {len(texto_propiedad)} chars | Children: {len(payload.get('children', []))} bloques")
             r = await client.post(
                 "https://api.notion.com/v1/pages",
                 headers=headers,
                 json=payload,
             )
             if r.status_code == 200:
-                logger.info(f"Prospecto creado en Notion: {nombre} — {email}")
+                page_id = r.json().get("id", "?")
+                logger.info(f"[NOTION] Prospecto creado OK: {nombre} — page_id={page_id}")
                 return True
             else:
-                logger.error(f"Error Notion: {r.status_code} — {r.text}")
+                logger.error(f"[NOTION] Error HTTP {r.status_code}: {r.text[:500]}")
                 return False
     except Exception as e:
-        logger.error(f"Error creando prospecto en Notion: {type(e).__name__}: {e}")
+        logger.error(f"[NOTION] Excepcion: {type(e).__name__}: {e}")
         return False

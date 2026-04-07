@@ -61,6 +61,20 @@ TOOLS = [
             },
             "required": ["url"]
         }
+    },
+    {
+        "name": "obtener_trm",
+        "description": (
+            "Obtiene la Tasa Representativa del Mercado (TRM) del día: el tipo de cambio "
+            "oficial USD → COP del Banco de la República de Colombia. "
+            "SIEMPRE usa esta herramienta antes de mencionar precios en pesos colombianos. "
+            "Nunca inventes ni estimes la TRM — siempre consulta el valor real del día."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
     }
 ]
 
@@ -128,7 +142,7 @@ def obtener_mensaje_fallback() -> str:
 
 async def _ejecutar_herramienta(nombre: str, parametros: dict) -> str:
     """Ejecuta la herramienta solicitada por Claude y retorna el resultado."""
-    from agent.tools import buscar_web, obtener_pagina
+    from agent.tools import buscar_web, obtener_pagina, obtener_trm
 
     logger.info(f"Herramienta ejecutada: {nombre} — params: {parametros}")
 
@@ -136,6 +150,8 @@ async def _ejecutar_herramienta(nombre: str, parametros: dict) -> str:
         return await buscar_web(parametros.get("query", ""))
     elif nombre == "obtener_pagina":
         return await obtener_pagina(parametros.get("url", ""))
+    elif nombre == "obtener_trm":
+        return await obtener_trm()
     else:
         return f"Herramienta desconocida: {nombre}"
 
