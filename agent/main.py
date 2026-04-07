@@ -7,6 +7,7 @@ Funciona con cualquier proveedor (Whapi, Meta, Twilio) gracias a la capa de prov
 """
 
 import os
+import re
 import asyncio
 import logging
 import time
@@ -171,15 +172,49 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
 
     # Detectar si Ana incluye el comando ENVIAR_COTIZACION
     # Formato: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email
+    # La detección limpia caracteres de formato que Claude puede agregar
     comando = None
+
+    def limpiar_linea(linea: str) -> str:
+        """Elimina caracteres de formato que Claude puede agregar alrededor del comando."""
+        limpia = linea.strip()
+        # Quitar backticks (inline code), asteriscos (negrita), guiones bajos (cursiva), comillas
+        for char in ["`", "*", "_", '"', "'", "«", "»"]:
+            limpia = limpia.strip(char)
+        return limpia.strip()
+
     for linea in respuesta.splitlines():
-        if linea.strip().startswith("ENVIAR_COTIZACION|"):
-            comando = linea.strip()
-            logger.info(f"[COMANDO] Detectado: {comando}")
+        limpia = limpiar_linea(linea)
+        if limpia.startswith("ENVIAR_COTIZACION|"):
+            comando = limpia
+            if limpia != linea.strip():
+                logger.info(f"[COMANDO] Detectado (limpiado de formato): '{linea.strip()}' → '{limpia}'")
+            else:
+                logger.info(f"[COMANDO] Detectado: {comando}")
             break
 
+    # Diagnóstico: si la respuesta contiene el texto pero no se detectó como comando
+    if not comando and "ENVIAR_COTIZACION" in respuesta:
+        logger.warning(
+            f"[COMANDO] ⚠️ La respuesta CONTIENE 'ENVIAR_COTIZACION' pero NO se detectó como comando. "
+            f"Revisión necesaria. Primeras 500 chars de respuesta: {respuesta[:500]}"
+        )
+        # Intento de rescate: buscar con regex el patrón completo en toda la respuesta
+        patron = re.search(r'ENVIAR_COTIZACION\|[^|\n]+\|[^|\n]+\|[^|\n]+\|[^|\n]+\|[^|\n]+', respuesta)
+        if patron:
+            comando = patron.group(0).strip()
+            logger.info(f"[COMANDO] ✅ Rescatado via regex: {comando}")
+
     if comando:
-        respuesta = respuesta.replace(comando, "").strip()
+        # Limpiar el comando de la respuesta (buscar tanto el comando limpio como con formato)
+        # Eliminar cualquier línea que contenga el comando (con o sin formato)
+        lineas_respuesta = respuesta.splitlines()
+        lineas_limpias = []
+        for linea in lineas_respuesta:
+            if "ENVIAR_COTIZACION|" not in linea:
+                lineas_limpias.append(linea)
+        respuesta = "\n".join(lineas_limpias).strip()
+
         partes = comando.split("|")
         logger.info(f"[COMANDO] Partes ({len(partes)}): {partes}")
 
@@ -265,7 +300,16 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
             if not exito_email:
                 respuesta += f"\n\n⚠️ Tuve un problema enviando el email a {email_cliente.strip()}. ¿Podrías verificar que el correo esté bien escrito?"
     else:
-        logger.info(f"[COMANDO] No se detectó ENVIAR_COTIZACION en la respuesta")
+        # Log de diagnóstico mejorado
+        tiene_email = "@" in respuesta and "." in respuesta.split("@")[-1] if "@" in respuesta else False
+        tiene_cotizacion_palabra = any(p in respuesta.lower() for p in ["cotización", "cotizacion", "listo", "enviamos"])
+        if tiene_email and tiene_cotizacion_palabra:
+            logger.warning(
+                f"[COMANDO] ⚠️ Respuesta parece contener datos de cotización pero NO tiene ENVIAR_COTIZACION. "
+                f"Claude probablemente olvidó incluir el comando. Respuesta: {respuesta[:400]}"
+            )
+        else:
+            logger.info(f"[COMANDO] No se detectó ENVIAR_COTIZACION en la respuesta (normal — no era cotización)")
 
     # Guardar mensaje del usuario Y respuesta del agente en memoria
     await guardar_mensaje(telefono, "user", texto)
