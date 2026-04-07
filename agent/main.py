@@ -93,31 +93,45 @@ async def procesar_mensaje(telefono: str, texto: str):
             partes = comando.split("|")
             if len(partes) == 7:
                 _, nombre, producto, link, cantidad, email_cliente, _ = partes
-                exito = await enviar_cotizacion_email(
-                    email_cliente=email_cliente.strip(),
-                    nombre_cliente=nombre.strip(),
-                    producto=producto.strip(),
-                    link=link.strip(),
-                    cantidad=int(cantidad.strip()) if cantidad.strip().isdigit() else 1,
-                    telefono_cliente=telefono,
-                )
+                cant_int = int(cantidad.strip()) if cantidad.strip().isdigit() else 1
+
+                # Email — fallo aquí no cancela Notion ni la respuesta
+                exito_email = False
+                try:
+                    exito_email = await enviar_cotizacion_email(
+                        email_cliente=email_cliente.strip(),
+                        nombre_cliente=nombre.strip(),
+                        producto=producto.strip(),
+                        link=link.strip(),
+                        cantidad=cant_int,
+                        telefono_cliente=telefono,
+                    )
+                except Exception as e_email:
+                    logger.error(f"Error enviando email: {type(e_email).__name__}: {e_email}")
+
                 log_cotizacion(
                     telefono=telefono,
                     nombre=nombre.strip(),
                     producto=producto.strip(),
                     link=link.strip(),
-                    cantidad=int(cantidad.strip()) if cantidad.strip().isdigit() else 1,
+                    cantidad=cant_int,
                     email=email_cliente.strip(),
-                    exito=exito,
+                    exito=exito_email,
                 )
-                await crear_prospecto_notion(
-                    nombre=nombre.strip(),
-                    email=email_cliente.strip(),
-                    whatsapp=telefono,
-                    producto=producto.strip(),
-                    resumen_chat=f"Producto: {producto.strip()}\nLink: {link.strip()}\nCantidad: {cantidad.strip()}",
-                )
-                if not exito:
+
+                # Notion — fallo aquí no cancela la respuesta
+                try:
+                    await crear_prospecto_notion(
+                        nombre=nombre.strip(),
+                        email=email_cliente.strip(),
+                        whatsapp=telefono,
+                        producto=producto.strip(),
+                        resumen_chat=f"Producto: {producto.strip()}\nLink: {link.strip()}\nCantidad: {cantidad.strip()}",
+                    )
+                except Exception as e_notion:
+                    logger.error(f"Error creando prospecto Notion: {type(e_notion).__name__}: {e_notion}")
+
+                if not exito_email:
                     respuesta += f"\n\n⚠️ Tuve un problema enviando el email a {email_cliente.strip()}. ¿Podrías verificar que el correo esté bien escrito?"
 
         # Guardar mensaje del usuario Y respuesta del agente en memoria
