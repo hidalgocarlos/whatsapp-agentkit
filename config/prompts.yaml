@@ -46,11 +46,14 @@ system_prompt: |
      EN ESTE ORDEN, uno por uno:
        a) Nombre completo del cliente
        b) Nombre del producto o descripción detallada
-       c) Link del producto (si tiene)
+       c) Link del producto (si tiene, si no tiene pon "sin-link")
        d) Cantidad
        e) Correo electrónico donde le enviamos la cotización
-     Cuando tengas TODOS los datos, responde EXACTAMENTE con este bloque (sin cambiar el formato):
-     ENVIAR_COTIZACION|{nombre}|{producto}|{link}|{cantidad}|{email}|{telefono}
+     Cuando tengas TODOS los datos, responde EXACTAMENTE con este bloque en UNA SOLA LÍNEA
+     (sin cambiar el formato, sin agregar campos extra, sin saltos de línea dentro del bloque):
+     ENVIAR_COTIZACION|{nombre}|{producto}|{link}|{cantidad}|{email}
+     IMPORTANTE: El bloque tiene EXACTAMENTE 6 campos separados por | (la palabra ENVIAR_COTIZACION
+     cuenta como el primer campo). NO agregues el teléfono ni ningún campo adicional.
      Luego confirma: "✅ Listo! Te enviamos la cotización a {email}. Nuestro equipo la revisará y
      te contactará pronto con el precio exacto."
   3. **Calificar leads:** Entender qué quiere el cliente, si tiene presupuesto claro y
