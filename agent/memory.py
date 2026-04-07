@@ -7,7 +7,7 @@ por número de teléfono usando SQLite (local) o PostgreSQL (producción).
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import String, Text, DateTime, select, Integer
@@ -38,7 +38,7 @@ class Mensaje(Base):
     telefono: Mapped[str] = mapped_column(String(50), index=True)
     role: Mapped[str] = mapped_column(String(20))  # "user" o "assistant"
     content: Mapped[str] = mapped_column(Text)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 async def inicializar_db():
@@ -54,7 +54,7 @@ async def guardar_mensaje(telefono: str, role: str, content: str):
             telefono=telefono,
             role=role,
             content=content,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )
         session.add(mensaje)
         await session.commit()
@@ -97,5 +97,5 @@ async def limpiar_historial(telefono: str):
         result = await session.execute(query)
         mensajes = result.scalars().all()
         for msg in mensajes:
-            await session.delete(msg)
+            session.delete(msg)
         await session.commit()

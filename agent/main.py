@@ -20,7 +20,7 @@ from agent.providers import obtener_proveedor
 from agent.tools import enviar_cotizacion_email, crear_prospecto_notion
 from agent.session_logger import (
     log_mensaje_cliente, log_respuesta_ana,
-    log_cotizacion, log_error, log_inicio_sesion,
+    log_cotizacion, log_error,
 )
 
 load_dotenv()
@@ -147,7 +147,7 @@ async def procesar_mensaje(telefono: str, texto: str):
 
     except Exception as e:
         logger.error(f"Error procesando mensaje de {telefono}: {e}")
-        log_error("procesar_mensaje", str(e))
+        log_error(telefono, str(e))
 
 
 @app.post("/webhook")

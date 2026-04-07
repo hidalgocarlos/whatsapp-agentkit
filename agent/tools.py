@@ -11,11 +11,7 @@ import base64
 import yaml
 import logging
 from datetime import datetime
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.image import MIMEImage
 import httpx
-import aiosmtplib
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger("agentkit")
@@ -226,13 +222,16 @@ async def enviar_cotizacion_email(
     Returns:
         True si el envío fue exitoso
     """
-    remitente = os.getenv("EMAIL_REMITENTE", "imporusa@yahoo.com")
-    password = os.getenv("EMAIL_PASSWORD", "")
-    copia_negocio = os.getenv("EMAIL_COPIA_NEGOCIO", "imporusa@yahoo.com")
-    smtp_host = os.getenv("SMTP_HOST", "smtp.mail.yahoo.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    fecha_legible = datetime.now().strftime("%d de %B de %Y")
+    _meses = {
+        "January": "Enero", "February": "Febrero", "March": "Marzo",
+        "April": "Abril", "May": "Mayo", "June": "Junio",
+        "July": "Julio", "August": "Agosto", "September": "Septiembre",
+        "October": "Octubre", "November": "Noviembre", "December": "Diciembre",
+    }
+    _fecha_raw = datetime.now().strftime("%d de %B de %Y")
+    fecha_legible = _fecha_raw.replace(datetime.now().strftime("%B"), _meses[datetime.now().strftime("%B")])
+    copia_negocio = os.getenv("EMAIL_COPIA_NEGOCIO", "imporusa@yahoo.com")
 
     # ── Cargar logo como base64 inline (compatible con Resend) ──
     logo_path = os.path.join("knowledge", "logo imporusa.png")
