@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 
-from agent.brain import generar_respuesta
+from agent.brain import generar_respuesta, cargar_knowledge
 from agent.memory import inicializar_db, guardar_mensaje, obtener_historial
 from agent.providers import obtener_proveedor
 from agent.tools import enviar_cotizacion_email
@@ -40,6 +40,7 @@ PORT = int(os.getenv("PORT", 8000))
 async def lifespan(app: FastAPI):
     """Inicializa la base de datos al arrancar el servidor."""
     await inicializar_db()
+    cargar_knowledge()
     logger.info("Base de datos inicializada")
     logger.info(f"Servidor AgentKit corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
