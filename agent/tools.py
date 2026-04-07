@@ -258,89 +258,161 @@ async def enviar_cotizacion_email(
     else:
         producto_img_tag = ""
 
-    html_cliente = f"""
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family:Arial,sans-serif; background:#f4f4f4; margin:0; padding:0;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4; padding:30px 0;">
-    <tr><td align="center">
-      <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+    html_cliente = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Imporusa | Tu Cotización</title>
+<style>
+  @media only screen and (max-width:600px) {{
+    .wrapper {{ padding: 8px !important; }}
+    .main-card {{ padding: 24px 16px !important; }}
+    .hero-title {{ font-size: 22px !important; }}
+    .card-row {{ display: block !important; width: 100% !important; }}
+    .card-cell {{ display: block !important; width: 100% !important; margin-bottom: 10px !important; }}
+    .footer-cell {{ display: block !important; text-align: center !important; padding-bottom: 8px !important; }}
+    .cta-btn {{ width: 100% !important; text-align: center !important; box-sizing: border-box !important; }}
+    .banner-badge {{ display: block !important; margin-top: 8px !important; }}
+  }}
+</style>
+</head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;">
 
-        <!-- Encabezado con logo -->
+<table width="100%" cellpadding="0" cellspacing="0" class="wrapper" style="background-color:#f3f4f6;padding:24px 12px;">
+<tr><td align="center">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;">
+
+  <!-- Banner -->
+  <tr>
+    <td style="background-color:#e0e7ff;border-radius:10px 10px 0 0;padding:12px 20px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
         <tr>
-          <td align="center" style="background:#1a1a2e; padding:30px 40px;">
-            {logo_tag}
+          <td style="font-size:12px;font-weight:700;color:#3730a3;letter-spacing:0.05em;">
+            ✅ Cotización recibida — {fecha_legible}
+          </td>
+          <td align="right">
+            <span class="banner-badge" style="font-size:10px;font-weight:800;color:#fff;background-color:#dc2626;padding:4px 10px;border-radius:20px;white-space:nowrap;">
+              Válida 24h
+            </span>
           </td>
         </tr>
-
-        <!-- Imagen del producto -->
-        {producto_img_tag}
-
-        <!-- Cuerpo -->
-        <tr>
-          <td style="padding:40px;">
-            <p style="font-size:18px; color:#1a1a2e; margin-top:0;">Hola, <strong>{nombre_cliente}</strong> 👋</p>
-            <p style="color:#444; line-height:1.6;">
-              Gracias por contactar a <strong>Imporusa</strong>. Hemos recibido tu solicitud de
-              cotización con los siguientes datos:
-            </p>
-
-            <!-- Tabla de detalles -->
-            <table width="100%" cellpadding="10" cellspacing="0"
-                   style="background:#f8f9fa; border-radius:6px; margin:20px 0; font-size:14px;">
-              <tr>
-                <td style="color:#666; width:130px;">📦 Producto</td>
-                <td style="color:#1a1a2e; font-weight:bold;">{producto}</td>
-              </tr>
-              <tr style="background:#fff;">
-                <td style="color:#666;">🔗 Link</td>
-                <td style="color:#1a1a2e;">{link_html}</td>
-              </tr>
-              <tr>
-                <td style="color:#666;">🔢 Cantidad</td>
-                <td style="color:#1a1a2e;">{cantidad}</td>
-              </tr>
-              <tr style="background:#fff;">
-                <td style="color:#666;">📅 Fecha</td>
-                <td style="color:#1a1a2e;">{fecha_legible}</td>
-              </tr>
-            </table>
-
-            <p style="color:#444; line-height:1.6;">
-              Nuestro equipo revisará tu solicitud y te contactará pronto con la cotización exacta
-              incluyendo precio del producto, comisión y envío.
-            </p>
-
-            <!-- Info clave -->
-            <table width="100%" cellpadding="8" cellspacing="0"
-                   style="border-left:4px solid #0066cc; background:#f0f7ff; border-radius:0 6px 6px 0; margin:20px 0; font-size:14px;">
-              <tr><td style="color:#444;">⏱️ <strong>Entrega:</strong> 8 días hábiles desde Miami hasta tu puerta en Cali</td></tr>
-              <tr><td style="color:#444;">💳 <strong>Pago:</strong> Transferencia bancaria o ePayco</td></tr>
-              <tr><td style="color:#444;">💰 <strong>Pedido mínimo:</strong> $300.000 COP</td></tr>
-            </table>
-
-            <p style="color:#444; line-height:1.6;">
-              Si tienes dudas, responde a este correo o escríbenos por WhatsApp.
-            </p>
-            <p style="color:#444;">¡Gracias por confiar en <strong>Imporusa</strong>! 🚀</p>
-          </td>
-        </tr>
-
-        <!-- Footer -->
-        <tr>
-          <td style="background:#1a1a2e; padding:20px 40px; text-align:center;">
-            <p style="color:#aaa; font-size:12px; margin:0;">
-              Imporusa — Personal Shopping &amp; Importaciones<br>
-              <a href="https://imporusa.com" style="color:#6699cc;">imporusa.com</a> |
-              imporusa@yahoo.com | Cali, Colombia
-            </p>
-          </td>
-        </tr>
-
       </table>
-    </td></tr>
-  </table>
+    </td>
+  </tr>
+
+  <!-- Card principal -->
+  <tr>
+    <td class="main-card" style="background-color:#ffffff;padding:32px 28px;border-left:1px solid #e5e7eb;border-right:1px solid #e5e7eb;">
+
+      <!-- Logo -->
+      <div style="margin-bottom:24px;">
+        {logo_tag}
+        <div style="font-size:11px;color:#9ca3af;margin-top:4px;letter-spacing:0.05em;text-transform:uppercase;">Personal Shopping &amp; Importaciones</div>
+      </div>
+
+      <!-- Saludo -->
+      <h1 class="hero-title" style="font-size:26px;font-weight:900;color:#111827;margin:0 0 10px;line-height:1.2;">
+        Hola, {nombre_cliente} 👋
+      </h1>
+      <p style="font-size:15px;color:#4b5563;line-height:1.65;margin:0 0 24px;">
+        Recibimos tu solicitud. Te contactaremos pronto con el precio exacto:
+        producto + comisión + envío a tu puerta en Cali.
+      </p>
+
+      <!-- Imagen del producto -->
+      {producto_img_tag}
+
+      <!-- Detalles -->
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;border-radius:10px;overflow:hidden;border:1px solid #e5e7eb;">
+        <tr style="background-color:#f9fafb;">
+          <td colspan="2" style="padding:10px 16px;font-size:11px;font-weight:700;color:#6b7280;letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid #e5e7eb;">
+            Detalle del pedido
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:12px 16px;font-size:14px;color:#6b7280;width:38%;border-bottom:1px solid #f3f4f6;">📦 Producto</td>
+          <td style="padding:12px 16px;font-size:14px;color:#111827;font-weight:700;border-bottom:1px solid #f3f4f6;word-break:break-word;">{producto}</td>
+        </tr>
+        <tr style="background-color:#f9fafb;">
+          <td style="padding:12px 16px;font-size:14px;color:#6b7280;border-bottom:1px solid #e5e7eb;">🔗 Enlace</td>
+          <td style="padding:12px 16px;font-size:13px;border-bottom:1px solid #e5e7eb;word-break:break-all;">{link_html}</td>
+        </tr>
+        <tr>
+          <td style="padding:12px 16px;font-size:14px;color:#6b7280;border-bottom:1px solid #f3f4f6;">🔢 Cantidad</td>
+          <td style="padding:12px 16px;font-size:14px;color:#111827;font-weight:700;border-bottom:1px solid #f3f4f6;">{cantidad} unidad(es)</td>
+        </tr>
+        <tr style="background-color:#f9fafb;">
+          <td style="padding:12px 16px;font-size:14px;color:#6b7280;">📅 Fecha</td>
+          <td style="padding:12px 16px;font-size:14px;color:#111827;">{fecha_legible}</td>
+        </tr>
+      </table>
+
+      <!-- CTA Button -->
+      {'<table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;"><tr><td align="center"><a href="' + link + '" class="cta-btn" style="display:inline-block;background-color:#1d4ed8;color:#ffffff;font-size:15px;font-weight:700;padding:16px 28px;border-radius:10px;text-decoration:none;min-width:200px;text-align:center;">Ver Producto →</a></td></tr></table>' if link else ''}
+
+      <!-- Cards de valor — apiladas en móvil -->
+      <table width="100%" cellpadding="0" cellspacing="0" class="card-row" style="margin-bottom:24px;">
+        <tr class="card-row">
+          <td class="card-cell" width="31%" style="background-color:#f0f4ff;border-radius:8px;padding:14px;vertical-align:top;border-bottom:3px solid #4f46e5;">
+            <div style="font-size:22px;margin-bottom:6px;">⚡</div>
+            <div style="font-size:13px;font-weight:700;color:#1e1b4b;margin-bottom:4px;">Entrega en 8 días</div>
+            <div style="font-size:12px;color:#4b5563;">Desde Miami hasta tu puerta en Cali.</div>
+          </td>
+          <td width="3%"></td>
+          <td class="card-cell" width="31%" style="background-color:#f0fdf4;border-radius:8px;padding:14px;vertical-align:top;border-bottom:3px solid #16a34a;">
+            <div style="font-size:22px;margin-bottom:6px;">🛡️</div>
+            <div style="font-size:13px;font-weight:700;color:#14532d;margin-bottom:4px;">Compra Segura</div>
+            <div style="font-size:12px;color:#4b5563;">Cuenta bancaria en EE.UU. Cualquier tienda.</div>
+          </td>
+          <td width="3%"></td>
+          <td class="card-cell" width="31%" style="background-color:#fff7ed;border-radius:8px;padding:14px;vertical-align:top;border-bottom:3px solid #ea580c;">
+            <div style="font-size:22px;margin-bottom:6px;">🏆</div>
+            <div style="font-size:13px;font-weight:700;color:#7c2d12;margin-bottom:4px;">20+ Años</div>
+            <div style="font-size:12px;color:#4b5563;">Bodega propia en Miami. Experiencia real.</div>
+          </td>
+        </tr>
+      </table>
+
+      <!-- Condiciones -->
+      <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#eff6ff;border-left:4px solid #1d4ed8;border-radius:0 8px 8px 0;margin-bottom:24px;">
+        <tr>
+          <td style="padding:14px 18px;font-size:14px;color:#1e40af;line-height:1.9;">
+            <strong>💳 Pago:</strong> Transferencia bancaria o ePayco<br>
+            <strong>💰 Comisión:</strong> 10% – 20% sobre el valor del producto<br>
+            <strong>📦 Mínimo:</strong> $300.000 COP
+          </td>
+        </tr>
+      </table>
+
+      <p style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;">
+        ¿Dudas? Responde este correo o escríbenos por WhatsApp.<br>
+        <strong style="color:#111827;">¡Gracias por confiar en Imporusa!</strong> 🚀
+      </p>
+
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="background-color:#111827;padding:20px 28px;border-radius:0 0 10px 10px;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td class="footer-cell" style="font-size:12px;color:#9ca3af;padding-bottom:4px;">
+            <strong style="color:#ffffff;">Imporusa</strong> — Cali, Colombia<br>
+            <a href="https://imporusa.com" style="color:#60a5fa;text-decoration:none;">imporusa.com</a>
+          </td>
+          <td align="right" class="footer-cell" style="font-size:11px;color:#6b7280;">
+            © {datetime.now().year} Imporusa
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
 </body>
 </html>
 """
