@@ -10,6 +10,8 @@ cuando el agente lo necesite (Tavily + scraping de páginas).
 import os
 import yaml
 import logging
+import asyncio
+import time
 from pathlib import Path
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
@@ -17,8 +19,12 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger("agentkit")
 
-# Cliente de Anthropic
-client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+# Cliente de Anthropic — timeout de 90s para que no se quede colgado
+CLAUDE_TIMEOUT_SEGUNDOS = 90
+client = AsyncAnthropic(
+    api_key=os.getenv("ANTHROPIC_API_KEY"),
+    timeout=CLAUDE_TIMEOUT_SEGUNDOS,  # Timeout HTTP (conexión + lectura)
+)
 
 # Cache del knowledge — se carga al arrancar, no en cada mensaje
 _knowledge_cache: str = ""
@@ -195,62 +201,88 @@ async def generar_respuesta(mensaje: str, historial: list[dict]) -> str:
     mensajes.append({"role": "user", "content": mensaje})
 
     try:
-        # ── Loop de tool use ──────────────────────────────────────────────────
-        max_iteraciones = 5  # Evitar loops infinitos
-        iteracion = 0
+        # ── Loop de tool use con timeout global ──────────────────────────────
+        # Timeout total para toda la generación (incluyendo herramientas)
+        TIMEOUT_TOTAL_SEGUNDOS = 120  # 2 minutos máximo por mensaje
+        inicio_total = time.time()
 
-        while iteracion < max_iteraciones:
-            iteracion += 1
+        async def _generar_con_tools():
+            """Loop interno de tool use — se ejecuta dentro de asyncio.wait_for."""
+            max_iteraciones = 5  # Evitar loops infinitos
+            iteracion = 0
 
-            response = await client.messages.create(
-                model="claude-sonnet-4-6",
-                max_tokens=2048,
-                system=system_prompt,
-                messages=mensajes,
-                tools=TOOLS,
-            )
+            while iteracion < max_iteraciones:
+                iteracion += 1
 
-            logger.info(
-                f"Claude [{iteracion}]: stop_reason={response.stop_reason} "
-                f"({response.usage.input_tokens} in / {response.usage.output_tokens} out)"
-            )
+                inicio_llamada = time.time()
+                response = await client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=2048,
+                    system=system_prompt,
+                    messages=mensajes,
+                    tools=TOOLS,
+                )
+                duracion_llamada = time.time() - inicio_llamada
 
-            # Respuesta final — extraer texto
-            if response.stop_reason == "end_turn":
-                texto = ""
-                for bloque in response.content:
-                    if hasattr(bloque, "text"):
-                        texto += bloque.text
-                return texto.strip()
+                logger.info(
+                    f"Claude [{iteracion}]: stop_reason={response.stop_reason} "
+                    f"({response.usage.input_tokens} in / {response.usage.output_tokens} out) "
+                    f"— {duracion_llamada:.1f}s"
+                )
 
-            # Claude quiere usar una herramienta
-            elif response.stop_reason == "tool_use":
-                # Agregar la respuesta del asistente al historial de mensajes
-                mensajes.append({"role": "assistant", "content": response.content})
+                # Respuesta final — extraer texto
+                if response.stop_reason == "end_turn":
+                    texto = ""
+                    for bloque in response.content:
+                        if hasattr(bloque, "text"):
+                            texto += bloque.text
+                    return texto.strip()
 
-                # Ejecutar cada herramienta solicitada
-                resultados_tools = []
-                for bloque in response.content:
-                    if bloque.type == "tool_use":
-                        resultado = await _ejecutar_herramienta(bloque.name, bloque.input)
-                        resultados_tools.append({
-                            "type": "tool_result",
-                            "tool_use_id": bloque.id,
-                            "content": resultado,
-                        })
+                # Claude quiere usar una herramienta
+                elif response.stop_reason == "tool_use":
+                    # Agregar la respuesta del asistente al historial de mensajes
+                    mensajes.append({"role": "assistant", "content": response.content})
 
-                # Agregar resultados de herramientas al historial
-                mensajes.append({"role": "user", "content": resultados_tools})
+                    # Ejecutar cada herramienta solicitada
+                    resultados_tools = []
+                    for bloque in response.content:
+                        if bloque.type == "tool_use":
+                            inicio_tool = time.time()
+                            resultado = await _ejecutar_herramienta(bloque.name, bloque.input)
+                            duracion_tool = time.time() - inicio_tool
+                            logger.info(f"Herramienta {bloque.name} completada en {duracion_tool:.1f}s")
+                            resultados_tools.append({
+                                "type": "tool_result",
+                                "tool_use_id": bloque.id,
+                                "content": resultado,
+                            })
 
-            else:
-                # stop_reason inesperado — salir del loop
-                logger.warning(f"stop_reason inesperado: {response.stop_reason}")
-                break
+                    # Agregar resultados de herramientas al historial
+                    mensajes.append({"role": "user", "content": resultados_tools})
 
-        # Si llegamos aquí sin respuesta de texto, extraer lo que haya
-        logger.warning("Se alcanzó el límite de iteraciones de tool use")
+                else:
+                    # stop_reason inesperado — salir del loop
+                    logger.warning(f"stop_reason inesperado: {response.stop_reason}")
+                    break
+
+            # Si llegamos aquí sin respuesta de texto, extraer lo que haya
+            logger.warning("Se alcanzó el límite de iteraciones de tool use")
+            return obtener_mensaje_error()
+
+        # ── Ejecutar con timeout global de seguridad ─────────────────────────
+        resultado = await asyncio.wait_for(
+            _generar_con_tools(),
+            timeout=TIMEOUT_TOTAL_SEGUNDOS
+        )
+        duracion_total = time.time() - inicio_total
+        logger.info(f"Respuesta generada en {duracion_total:.1f}s total")
+        return resultado
+
+    except asyncio.TimeoutError:
+        duracion_total = time.time() - inicio_total
+        logger.error(f"TIMEOUT: La generación tardó más de {TIMEOUT_TOTAL_SEGUNDOS}s (real: {duracion_total:.1f}s)")
         return obtener_mensaje_error()
 
     except Exception as e:
-        logger.error(f"Error Claude API: {e}")
+        logger.error(f"Error Claude API: {type(e).__name__}: {e}")
         return obtener_mensaje_error()

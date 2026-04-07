@@ -9,6 +9,7 @@ Funciona con cualquier proveedor (Whapi, Meta, Twilio) gracias a la capa de prov
 import os
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from fastapi.responses import PlainTextResponse
@@ -34,6 +35,21 @@ logger = logging.getLogger("agentkit")
 # Proveedor de WhatsApp (se configura en .env con WHATSAPP_PROVIDER)
 proveedor = obtener_proveedor()
 PORT = int(os.getenv("PORT", 8000))
+
+# ── Control de concurrencia ──────────────────────────────────
+# Limita cuántos mensajes se procesan simultáneamente para no saturar la API de Claude
+MAX_MENSAJES_SIMULTANEOS = int(os.getenv("MAX_CONCURRENT_MESSAGES", 5))
+semaforo_mensajes = asyncio.Semaphore(MAX_MENSAJES_SIMULTANEOS)
+
+# Mensaje de error que se envía al cliente cuando el agente falla
+MENSAJE_ERROR_CLIENTE = (
+    "Lo siento, estoy teniendo un problema técnico en este momento. "
+    "Por favor intenta de nuevo en unos minutos o escríbenos directamente. "
+    "¡Gracias por tu paciencia! 🙏"
+)
+
+# Reintentos para procesar un mensaje antes de enviar error al cliente
+MAX_REINTENTOS = 2
 
 
 @asynccontextmanager
@@ -92,131 +108,176 @@ async def webhook_verificacion(request: Request):
 
 
 async def procesar_mensaje(telefono: str, texto: str):
-    """Procesa el mensaje en background para no bloquear el webhook."""
-    try:
-        log_mensaje_cliente(telefono, texto)
+    """
+    Procesa el mensaje en background con:
+    - Semáforo de concurrencia (máx mensajes simultáneos)
+    - Reintentos automáticos
+    - Mensaje de error al cliente si todo falla
+    - Logging detallado con tiempos
+    """
+    inicio_total = time.time()
 
-        # Obtener historial ANTES de guardar el mensaje actual
-        historial = await obtener_historial(telefono)
+    # ── Semáforo: esperar turno si hay muchos mensajes en cola ────────
+    logger.info(f"[COLA] Mensaje de {telefono} esperando semáforo ({semaforo_mensajes._value}/{MAX_MENSAJES_SIMULTANEOS} slots libres)")
+    async with semaforo_mensajes:
+        logger.info(f"[COLA] Mensaje de {telefono} adquirió slot — procesando")
 
-        # Generar respuesta con Claude
-        respuesta = await generar_respuesta(texto, historial)
-
-        # ── DEBUG: Loguear respuesta cruda para diagnosticar ─────────
-        logger.info(f"[DEBUG] Respuesta cruda de Claude ({len(respuesta)} chars): {respuesta[:300]}...")
-
-        # Detectar si Ana incluye el comando ENVIAR_COTIZACION
-        # Formato: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email
-        comando = None
-        for linea in respuesta.splitlines():
-            if linea.strip().startswith("ENVIAR_COTIZACION|"):
-                comando = linea.strip()
-                logger.info(f"[COMANDO] Detectado: {comando}")
-                break
-
-        if comando:
-            respuesta = respuesta.replace(comando, "").strip()
-            partes = comando.split("|")
-            logger.info(f"[COMANDO] Partes ({len(partes)}): {partes}")
-
-            # Aceptar 6 partes (nuevo formato sin teléfono) o 7 partes (formato legacy)
-            nombre = producto = link = cantidad = email_cliente = ""
-            formato_valido = False
-
-            if len(partes) == 6:
-                # Formato nuevo: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email
-                _, nombre, producto, link, cantidad, email_cliente = partes
-                formato_valido = True
-                logger.info(f"[COMANDO] Formato 6 campos OK")
-            elif len(partes) == 7:
-                # Formato legacy: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email|telefono
-                _, nombre, producto, link, cantidad, email_cliente, _ = partes
-                formato_valido = True
-                logger.info(f"[COMANDO] Formato 7 campos (legacy) OK")
-            else:
+        for intento in range(1, MAX_REINTENTOS + 1):
+            try:
+                await _procesar_mensaje_interno(telefono, texto, intento, inicio_total)
+                return  # Éxito — salir
+            except Exception as e:
+                duracion = time.time() - inicio_total
                 logger.error(
-                    f"[COMANDO] FORMATO INVALIDO — esperaba 6 o 7 campos, recibí {len(partes)}. "
-                    f"Comando completo: {comando}"
+                    f"[RETRY] Intento {intento}/{MAX_REINTENTOS} falló para {telefono} "
+                    f"({duracion:.1f}s): {type(e).__name__}: {e}"
                 )
+                log_error(telefono, f"Intento {intento}: {type(e).__name__}: {e}")
 
-            if formato_valido:
-                cant_int = int(cantidad.strip()) if cantidad.strip().isdigit() else 1
+                if intento < MAX_REINTENTOS:
+                    # Esperar un poco antes de reintentar
+                    await asyncio.sleep(2)
 
-                # ── EMAIL — fallo aquí NO cancela Notion ─────────────
-                exito_email = False
-                try:
-                    exito_email = await enviar_cotizacion_email(
-                        email_cliente=email_cliente.strip(),
-                        nombre_cliente=nombre.strip(),
-                        producto=producto.strip(),
-                        link=link.strip(),
-                        cantidad=cant_int,
-                        telefono_cliente=telefono,
-                    )
-                    logger.info(f"[EMAIL] Resultado: {'OK' if exito_email else 'FALLO'}")
-                except Exception as e_email:
-                    logger.error(f"[EMAIL] Excepcion: {type(e_email).__name__}: {e_email}")
+        # ── Todos los reintentos fallaron — enviar mensaje de error al cliente ──
+        duracion_total = time.time() - inicio_total
+        logger.error(
+            f"[FALLO TOTAL] No se pudo procesar mensaje de {telefono} después de "
+            f"{MAX_REINTENTOS} intentos ({duracion_total:.1f}s). Enviando mensaje de error."
+        )
+        try:
+            await proveedor.enviar_mensaje(telefono, MENSAJE_ERROR_CLIENTE)
+            logger.info(f"[RECOVERY] Mensaje de error enviado a {telefono}")
+        except Exception as e_envio:
+            logger.error(f"[RECOVERY] No se pudo enviar mensaje de error a {telefono}: {e_envio}")
 
-                try:
-                    log_cotizacion(
-                        telefono=telefono,
-                        nombre=nombre.strip(),
-                        producto=producto.strip(),
-                        link=link.strip(),
-                        cantidad=cant_int,
-                        email=email_cliente.strip(),
-                        exito=exito_email,
-                    )
-                except Exception as e_log:
-                    logger.error(f"Error en log_cotizacion: {e_log}")
 
-                # ── NOTION — 100% independiente del email ────────────
-                lineas_chat = []
-                for msg in historial:
-                    prefijo = "Cliente" if msg["role"] == "user" else "Ana"
-                    lineas_chat.append(f"{prefijo}: {msg['content']}")
-                lineas_chat.append(f"Cliente: {texto}")
-                lineas_chat.append(f"Ana: {respuesta}")
-                resumen_completo = (
-                    f"Producto: {producto.strip()}\n"
-                    f"Link: {link.strip()}\n"
-                    f"Cantidad: {cantidad.strip()}\n\n"
-                    f"--- Conversacion WhatsApp ---\n"
-                    + "\n".join(lineas_chat)
-                )
+async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, inicio_total: float):
+    """Lógica interna de procesamiento — puede lanzar excepciones para retry."""
+    log_mensaje_cliente(telefono, texto)
 
-                logger.info(f"[NOTION] Guardando prospecto: {nombre.strip()} — {email_cliente.strip()}")
-                try:
-                    exito_notion = await crear_prospecto_notion(
-                        nombre=nombre.strip(),
-                        email=email_cliente.strip(),
-                        whatsapp=telefono,
-                        producto=producto.strip(),
-                        resumen_chat=resumen_completo,
-                    )
-                    logger.info(f"[NOTION] Resultado: {'OK' if exito_notion else 'FALLO'}")
-                except Exception as e_notion:
-                    logger.error(f"[NOTION] Excepcion: {type(e_notion).__name__}: {e_notion}")
+    # Obtener historial ANTES de guardar el mensaje actual
+    historial = await obtener_historial(telefono)
 
-                if not exito_email:
-                    respuesta += f"\n\n⚠️ Tuve un problema enviando el email a {email_cliente.strip()}. ¿Podrías verificar que el correo esté bien escrito?"
+    # Generar respuesta con Claude
+    inicio_claude = time.time()
+    respuesta = await generar_respuesta(texto, historial)
+    duracion_claude = time.time() - inicio_claude
+
+    # ── DEBUG: Loguear respuesta cruda para diagnosticar ─────────
+    logger.info(
+        f"[DEBUG] Respuesta de Claude ({len(respuesta)} chars, {duracion_claude:.1f}s): "
+        f"{respuesta[:300]}..."
+    )
+
+    # Detectar si Ana incluye el comando ENVIAR_COTIZACION
+    # Formato: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email
+    comando = None
+    for linea in respuesta.splitlines():
+        if linea.strip().startswith("ENVIAR_COTIZACION|"):
+            comando = linea.strip()
+            logger.info(f"[COMANDO] Detectado: {comando}")
+            break
+
+    if comando:
+        respuesta = respuesta.replace(comando, "").strip()
+        partes = comando.split("|")
+        logger.info(f"[COMANDO] Partes ({len(partes)}): {partes}")
+
+        # Aceptar 6 partes (nuevo formato sin teléfono) o 7 partes (formato legacy)
+        nombre = producto = link = cantidad = email_cliente = ""
+        formato_valido = False
+
+        if len(partes) == 6:
+            # Formato nuevo: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email
+            _, nombre, producto, link, cantidad, email_cliente = partes
+            formato_valido = True
+            logger.info(f"[COMANDO] Formato 6 campos OK")
+        elif len(partes) == 7:
+            # Formato legacy: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email|telefono
+            _, nombre, producto, link, cantidad, email_cliente, _ = partes
+            formato_valido = True
+            logger.info(f"[COMANDO] Formato 7 campos (legacy) OK")
         else:
-            logger.info(f"[COMANDO] No se detectó ENVIAR_COTIZACION en la respuesta")
+            logger.error(
+                f"[COMANDO] FORMATO INVALIDO — esperaba 6 o 7 campos, recibí {len(partes)}. "
+                f"Comando completo: {comando}"
+            )
 
-        # Guardar mensaje del usuario Y respuesta del agente en memoria
-        await guardar_mensaje(telefono, "user", texto)
-        await guardar_mensaje(telefono, "assistant", respuesta)
+        if formato_valido:
+            cant_int = int(cantidad.strip()) if cantidad.strip().isdigit() else 1
 
-        log_respuesta_ana(telefono, respuesta)
+            # ── EMAIL — fallo aquí NO cancela Notion ─────────────
+            exito_email = False
+            try:
+                exito_email = await enviar_cotizacion_email(
+                    email_cliente=email_cliente.strip(),
+                    nombre_cliente=nombre.strip(),
+                    producto=producto.strip(),
+                    link=link.strip(),
+                    cantidad=cant_int,
+                    telefono_cliente=telefono,
+                )
+                logger.info(f"[EMAIL] Resultado: {'OK' if exito_email else 'FALLO'}")
+            except Exception as e_email:
+                logger.error(f"[EMAIL] Excepcion: {type(e_email).__name__}: {e_email}")
 
-        # Enviar respuesta por WhatsApp via el proveedor
-        await proveedor.enviar_mensaje(telefono, respuesta)
+            try:
+                log_cotizacion(
+                    telefono=telefono,
+                    nombre=nombre.strip(),
+                    producto=producto.strip(),
+                    link=link.strip(),
+                    cantidad=cant_int,
+                    email=email_cliente.strip(),
+                    exito=exito_email,
+                )
+            except Exception as e_log:
+                logger.error(f"Error en log_cotizacion: {e_log}")
 
-        logger.info(f"Respuesta a {telefono}: {respuesta[:200]}...")
+            # ── NOTION — 100% independiente del email ────────────
+            lineas_chat = []
+            for msg in historial:
+                prefijo = "Cliente" if msg["role"] == "user" else "Ana"
+                lineas_chat.append(f"{prefijo}: {msg['content']}")
+            lineas_chat.append(f"Cliente: {texto}")
+            lineas_chat.append(f"Ana: {respuesta}")
+            resumen_completo = (
+                f"Producto: {producto.strip()}\n"
+                f"Link: {link.strip()}\n"
+                f"Cantidad: {cantidad.strip()}\n\n"
+                f"--- Conversacion WhatsApp ---\n"
+                + "\n".join(lineas_chat)
+            )
 
-    except Exception as e:
-        logger.error(f"Error procesando mensaje de {telefono}: {e}")
-        log_error(telefono, str(e))
+            logger.info(f"[NOTION] Guardando prospecto: {nombre.strip()} — {email_cliente.strip()}")
+            try:
+                exito_notion = await crear_prospecto_notion(
+                    nombre=nombre.strip(),
+                    email=email_cliente.strip(),
+                    whatsapp=telefono,
+                    producto=producto.strip(),
+                    resumen_chat=resumen_completo,
+                )
+                logger.info(f"[NOTION] Resultado: {'OK' if exito_notion else 'FALLO'}")
+            except Exception as e_notion:
+                logger.error(f"[NOTION] Excepcion: {type(e_notion).__name__}: {e_notion}")
+
+            if not exito_email:
+                respuesta += f"\n\n⚠️ Tuve un problema enviando el email a {email_cliente.strip()}. ¿Podrías verificar que el correo esté bien escrito?"
+    else:
+        logger.info(f"[COMANDO] No se detectó ENVIAR_COTIZACION en la respuesta")
+
+    # Guardar mensaje del usuario Y respuesta del agente en memoria
+    await guardar_mensaje(telefono, "user", texto)
+    await guardar_mensaje(telefono, "assistant", respuesta)
+
+    log_respuesta_ana(telefono, respuesta)
+
+    # Enviar respuesta por WhatsApp via el proveedor
+    await proveedor.enviar_mensaje(telefono, respuesta)
+
+    duracion_total = time.time() - inicio_total
+    logger.info(f"[OK] Respuesta a {telefono} enviada en {duracion_total:.1f}s: {respuesta[:200]}...")
 
 
 @app.post("/webhook")
@@ -234,7 +295,10 @@ async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
             if msg.es_propio or not msg.texto:
                 continue
 
-            logger.info(f"Mensaje de {msg.telefono}: {msg.texto}")
+            logger.info(
+                f"[WEBHOOK] Mensaje de {msg.telefono}: {msg.texto[:100]} "
+                f"(slots libres: {semaforo_mensajes._value}/{MAX_MENSAJES_SIMULTANEOS})"
+            )
 
             # Procesar en background — responde 200 OK antes de llamar a Claude
             background_tasks.add_task(procesar_mensaje, msg.telefono, msg.texto)
