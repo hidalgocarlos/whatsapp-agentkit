@@ -372,44 +372,7 @@ async def enviar_cotizacion_email(
 </html>
 """
 
-    def _construir_mensaje(de: str, para: str, asunto: str, html: str,
-                           incluir_img_producto: bool = False) -> MIMEMultipart:
-        """Arma el mensaje MIME con HTML, logo e imagen del producto embebidos."""
-        msg = MIMEMultipart("related")
-        msg["From"] = de
-        msg["To"] = para
-        msg["Subject"] = asunto
-        alternativa = MIMEMultipart("alternative")
-        alternativa.attach(MIMEText(html, "html", "utf-8"))
-        msg.attach(alternativa)
-        if logo_data:
-            img_logo = MIMEImage(logo_data, name="logo imporusa.png")
-            img_logo.add_header("Content-ID", f"<{logo_cid}>")
-            img_logo.add_header("Content-Disposition", "inline", filename="logo imporusa.png")
-            msg.attach(img_logo)
-        if incluir_img_producto and producto_img_data:
-            img_prod = MIMEImage(producto_img_data, name="producto.jpg")
-            img_prod.add_header("Content-ID", f"<{producto_img_cid}>")
-            img_prod.add_header("Content-Disposition", "inline", filename="producto.jpg")
-            msg.attach(img_prod)
-        return msg
-
     try:
-        msg_cliente = _construir_mensaje(
-            de=f"Imporusa <{remitente}>",
-            para=email_cliente,
-            asunto=f"Solicitud de cotización recibida — {producto[:50]}",
-            html=html_cliente,
-            incluir_img_producto=True,
-        )
-        msg_interno = _construir_mensaje(
-            de=f"Imporusa Bot <{remitente}>",
-            para=copia_negocio,
-            asunto=f"[LEAD] Nueva cotización: {producto[:50]} — {nombre_cliente}",
-            html=html_interno,
-            incluir_img_producto=True,
-        )
-
         # Resend API — funciona en Railway sin restricciones de puertos
         resend_key = os.getenv("RESEND_API_KEY", "")
         if not resend_key:
