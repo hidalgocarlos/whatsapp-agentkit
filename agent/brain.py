@@ -29,6 +29,9 @@ client = AsyncAnthropic(
 # Cache del knowledge — se carga al arrancar, no en cada mensaje
 _knowledge_cache: str = ""
 
+# Cache de la configuración de prompts
+_config_cache: dict = {}
+
 # ── Definición de herramientas que Claude puede usar ──────────────────────────
 TOOLS = [
     {
@@ -163,13 +166,17 @@ def cargar_knowledge() -> str:
 
 
 def cargar_config_prompts() -> dict:
-    """Lee toda la configuración desde config/prompts.yaml."""
+    """Lee toda la configuración desde config/prompts.yaml (se cachea en memoria)."""
+    global _config_cache
+    if _config_cache:
+        return _config_cache
     try:
         with open("config/prompts.yaml", "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
+            _config_cache = yaml.safe_load(f) or {}
     except FileNotFoundError:
         logger.error("config/prompts.yaml no encontrado")
-        return {}
+        _config_cache = {}
+    return _config_cache
 
 
 def cargar_system_prompt() -> str:

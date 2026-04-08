@@ -189,7 +189,7 @@ async def procesar_mensaje(telefono: str, texto: str):
     inicio_total = time.time()
 
     # ── Semáforo: esperar turno si hay muchos mensajes en cola ────────
-    logger.info(f"[COLA] Mensaje de {telefono} esperando semáforo ({semaforo_mensajes._value}/{MAX_MENSAJES_SIMULTANEOS} slots libres)")
+    logger.info(f"[COLA] Mensaje de {telefono} esperando semáforo")
     async with semaforo_mensajes:
         logger.info(f"[COLA] Mensaje de {telefono} adquirió slot — procesando")
 
@@ -319,22 +319,8 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
         if formato_valido:
             cant_int = int(cantidad.strip()) if cantidad.strip().isdigit() else 1
 
-            # ── FOLLOW-UP — registrar ANTES del email para tener tracking_id ──
-            tracking_id = str(uuid.uuid4())
-            try:
-                await registrar_cotizacion(
-                    telefono=telefono,
-                    nombre=nombre.strip(),
-                    producto=producto.strip(),
-                    email=email_cliente.strip(),
-                    tracking_id=tracking_id,
-                )
-                logger.info(f"[FOLLOWUP] Cotización registrada: {nombre.strip()} — tracking={tracking_id}")
-            except Exception as e_fu:
-                logger.error(f"[FOLLOWUP] Error registrando: {e_fu}")
-                tracking_id = ""
-
             # ── EMAIL ──────────────────────────────────────────────────────────
+            tracking_id = str(uuid.uuid4())
             exito_email = False
             try:
                 exito_email = await enviar_cotizacion_email(
@@ -349,6 +335,20 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
                 logger.info(f"[EMAIL] Resultado: {'OK' if exito_email else 'FALLO'}")
             except Exception as e_email:
                 logger.error(f"[EMAIL] Excepcion: {type(e_email).__name__}: {e_email}")
+
+            # ── FOLLOW-UP — registrar SOLO si el email se envió exitosamente ──
+            if exito_email:
+                try:
+                    await registrar_cotizacion(
+                        telefono=telefono,
+                        nombre=nombre.strip(),
+                        producto=producto.strip(),
+                        email=email_cliente.strip(),
+                        tracking_id=tracking_id,
+                    )
+                    logger.info(f"[FOLLOWUP] Cotización registrada: {nombre.strip()} — tracking={tracking_id}")
+                except Exception as e_fu:
+                    logger.error(f"[FOLLOWUP] Error registrando: {e_fu}")
 
             try:
                 log_cotizacion(
@@ -421,8 +421,7 @@ async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
                 continue
 
             logger.info(
-                f"[WEBHOOK] Mensaje de {msg.telefono}: {msg.texto[:100]} "
-                f"(slots libres: {semaforo_mensajes._value}/{MAX_MENSAJES_SIMULTANEOS})"
+                f"[WEBHOOK] Mensaje de {msg.telefono}: {msg.texto[:100]}"
             )
 
             # Procesar en background — responde 200 OK antes de llamar a Claude

@@ -39,7 +39,7 @@ class Mensaje(Base):
     telefono: Mapped[str] = mapped_column(String(50), index=True)
     role: Mapped[str] = mapped_column(String(20))  # "user" o "assistant"
     content: Mapped[str] = mapped_column(Text)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class Cotizacion(Base):
@@ -51,9 +51,9 @@ class Cotizacion(Base):
     nombre: Mapped[str] = mapped_column(String(200))
     producto: Mapped[str] = mapped_column(Text)
     email: Mapped[str] = mapped_column(String(200))
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     etapa_seguimiento: Mapped[int] = mapped_column(Integer, default=0)   # 0..4 — 4 = sin más toques
-    proximo_seguimiento: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    proximo_seguimiento: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     email_abierto: Mapped[bool] = mapped_column(Boolean, default=False)
     tracking_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     confirmado: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -147,7 +147,7 @@ async def obtener_cotizaciones_para_seguimiento() -> list[Cotizacion]:
     async with async_session() as session:
         query = (
             select(Cotizacion)
-            .where(Cotizacion.confirmado == False)
+            .where(Cotizacion.confirmado.is_(False))
             .where(Cotizacion.etapa_seguimiento < 4)
             .where(Cotizacion.proximo_seguimiento.isnot(None))
             .where(Cotizacion.proximo_seguimiento <= ahora)
@@ -197,7 +197,7 @@ async def marcar_cotizacion_confirmada(telefono: str):
         await session.execute(
             update(Cotizacion)
             .where(Cotizacion.telefono == telefono)
-            .where(Cotizacion.confirmado == False)
+            .where(Cotizacion.confirmado.is_(False))
             .values(confirmado=True)
         )
         await session.commit()

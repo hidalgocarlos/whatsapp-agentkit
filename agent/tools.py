@@ -443,31 +443,10 @@ async def enviar_cotizacion_email(
     trm_valor = ""
     trm_fecha = ""
     try:
-        if _trm_cache["valor"] and _trm_cache["timestamp"]:
-            edad_horas = (datetime.now() - _trm_cache["timestamp"]).total_seconds() / 3600
-            if edad_horas < 6:
-                trm_valor = _trm_cache["valor"]
-                trm_fecha = _trm_cache["fecha"]
-        if not trm_valor:
-            # Consultar la API directamente
-            async with httpx.AsyncClient(timeout=10) as trm_client:
-                r_trm = await trm_client.get(
-                    "https://www.datos.gov.co/resource/32sa-8pi3.json",
-                    params={"$order": "vigenciadesde DESC", "$limit": "1"},
-                )
-                if r_trm.status_code == 200:
-                    data_trm = r_trm.json()
-                    if data_trm:
-                        val = data_trm[0].get("valor", "")
-                        try:
-                            trm_valor = f"{float(val):,.2f}"
-                        except (ValueError, TypeError):
-                            trm_valor = val
-                        trm_fecha = data_trm[0].get("vigenciadesde", "")[:10]
-                        # Actualizar cache
-                        _trm_cache["valor"] = trm_valor
-                        _trm_cache["fecha"] = trm_fecha
-                        _trm_cache["timestamp"] = datetime.now()
+        # Reusar obtener_trm() que ya maneja cache y fallbacks
+        await obtener_trm()
+        trm_valor = _trm_cache.get("valor", "")
+        trm_fecha = _trm_cache.get("fecha", "")
     except Exception as e_trm:
         logger.warning(f"[EMAIL] No se pudo obtener TRM para el email: {e_trm}")
 
@@ -500,10 +479,17 @@ async def enviar_cotizacion_email(
     # ── HTML del email al cliente ────────────────────────────
     link_html = f'<a href="{link}" style="color:#0066cc;">{link[:60]}...</a>' if link else "No proporcionado"
     if producto_img_data:
+        # Detectar MIME type desde magic bytes
+        if producto_img_data[:8] == b'\x89PNG\r\n\x1a\n':
+            img_mime = "image/png"
+        elif producto_img_data[:3] == b'\xff\xd8\xff':
+            img_mime = "image/jpeg"
+        else:
+            img_mime = "image/jpeg"  # fallback
         producto_img_b64 = base64.b64encode(producto_img_data).decode()
         producto_img_tag = (
             f'<tr><td align="center" style="padding:20px 40px 0;">'
-            f'<img src="data:image/jpeg;base64,{producto_img_b64}" alt="{producto}" '
+            f'<img src="data:{img_mime};base64,{producto_img_b64}" alt="{producto}" '
             f'style="max-width:300px; max-height:300px; border-radius:8px; border:1px solid #eee;">'
             f'</td></tr>'
         )
