@@ -166,42 +166,63 @@ async def obtener_trm() -> str:
                 f"Para convertir: multiplica el precio en USD por {_trm_cache['valor']}."
             )
 
-    try:
+    async def _trm_desde_datos_gov() -> tuple[str, str] | None:
+        """Intenta obtener TRM desde datos.gov.co (fuente oficial)."""
         url = "https://www.datos.gov.co/resource/32sa-8pi3.json"
         params = {"$order": "vigenciadesde DESC", "$limit": "1"}
-
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(url, params=params)
             if r.status_code != 200:
-                logger.error(f"[TRM] Error API datos.gov.co: {r.status_code}")
-                return "No pude obtener la TRM en este momento. Usa un valor aproximado de referencia."
-
+                logger.warning(f"[TRM] datos.gov.co retornó {r.status_code} — se usará fallback")
+                return None
             data = r.json()
             if not data:
-                return "No se encontraron datos de TRM disponibles."
-
+                return None
             registro = data[0]
             valor = registro.get("valor", "")
-            vigencia = registro.get("vigenciadesde", "")[:10]  # Solo YYYY-MM-DD
+            vigencia = registro.get("vigenciadesde", "")[:10]
+            valor_float = float(valor)
+            return f"{valor_float:,.2f}", vigencia
 
-            # Formatear valor (puede venir como "4150.32")
-            try:
-                valor_float = float(valor)
-                valor_formateado = f"{valor_float:,.2f}"
-            except (ValueError, TypeError):
-                valor_formateado = valor
+    async def _trm_desde_exchangerate() -> tuple[str, str] | None:
+        """Fallback: obtiene COP/USD desde open.er-api.com (gratis, sin API key)."""
+        url = "https://open.er-api.com/v6/latest/USD"
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(url)
+            if r.status_code != 200:
+                logger.warning(f"[TRM] open.er-api.com retornó {r.status_code}")
+                return None
+            data = r.json()
+            cop = data.get("rates", {}).get("COP")
+            if not cop:
+                return None
+            fecha = data.get("time_last_update_utc", "")[:10]
+            return f"{float(cop):,.2f}", fecha
 
-            # Actualizar cache
-            _trm_cache["valor"] = valor_formateado
-            _trm_cache["fecha"] = vigencia
-            _trm_cache["timestamp"] = datetime.now()
+    try:
+        resultado = await _trm_desde_datos_gov()
+        fuente = "Banco de la República (datos.gov.co)"
 
-            logger.info(f"[TRM] Obtenida: 1 USD = {valor_formateado} COP (vigencia: {vigencia})")
-            return (
-                f"TRM del día ({vigencia}): 1 USD = {valor_formateado} COP.\n"
-                f"Fuente: Banco de la República (datos.gov.co).\n"
-                f"Para convertir: multiplica el precio en USD por {valor_formateado}."
-            )
+        if resultado is None:
+            resultado = await _trm_desde_exchangerate()
+            fuente = "Open Exchange Rates (fallback)"
+
+        if resultado is None:
+            return "No pude obtener la TRM en este momento. Usa un valor aproximado de referencia."
+
+        valor_formateado, vigencia = resultado
+
+        # Actualizar cache
+        _trm_cache["valor"] = valor_formateado
+        _trm_cache["fecha"] = vigencia
+        _trm_cache["timestamp"] = datetime.now()
+
+        logger.info(f"[TRM] Obtenida: 1 USD = {valor_formateado} COP (vigencia: {vigencia}) — fuente: {fuente}")
+        return (
+            f"TRM del día ({vigencia}): 1 USD = {valor_formateado} COP.\n"
+            f"Fuente: {fuente}.\n"
+            f"Para convertir: multiplica el precio en USD por {valor_formateado}."
+        )
 
     except Exception as e:
         logger.error(f"[TRM] Error consultando TRM: {type(e).__name__}: {e}")
