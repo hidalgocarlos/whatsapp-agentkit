@@ -105,6 +105,26 @@ TOOLS = [
             },
             "required": ["precio_usd"]
         }
+    },
+    {
+        "name": "comparar_precios",
+        "description": (
+            "Busca y compara precios del mismo producto en Amazon, BestBuy y Walmart, "
+            "y calcula cuánto costaría con Imporusa en cada caso (tax FL + comisión + envío). "
+            "Úsala cuando el cliente quiera saber dónde está más barato o compara opciones. "
+            "También úsala cuando el cliente solo diga el nombre del producto sin dar un link, "
+            "para encontrar el precio actual en las tiendas."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "producto": {
+                    "type": "string",
+                    "description": "Nombre del producto a comparar (ej: 'iPhone 16 Pro 256GB', 'Samsung 4K TV 65 pulgadas')"
+                }
+            },
+            "required": ["producto"]
+        }
     }
 ]
 
@@ -188,6 +208,9 @@ async def _ejecutar_herramienta(nombre: str, parametros: dict) -> str:
             precio_usd=float(parametros.get("precio_usd", 0)),
             cantidad=int(parametros.get("cantidad", 1)),
         )
+    elif nombre == "comparar_precios":
+        from agent.tools import comparar_precios
+        return await comparar_precios(parametros.get("producto", ""))
     else:
         return f"Herramienta desconocida: {nombre}"
 

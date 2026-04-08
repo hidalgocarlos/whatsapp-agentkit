@@ -229,6 +229,70 @@ async def obtener_trm() -> str:
         return "Error al consultar la TRM. Intenta de nuevo en un momento."
 
 
+import re as _re
+
+
+async def comparar_precios(producto: str) -> str:
+    """
+    Busca el precio del producto en Amazon, BestBuy y Walmart,
+    y calcula el precio final con Imporusa para cada uno.
+
+    Returns:
+        Tabla comparativa en texto para WhatsApp.
+    """
+    tiendas = [
+        ("Amazon",   f"{producto} site:amazon.com price"),
+        ("BestBuy",  f"{producto} site:bestbuy.com price"),
+        ("Walmart",  f"{producto} site:walmart.com price"),
+    ]
+
+    # Patrón para extraer precios USD de los snippets de búsqueda
+    patron_precio = _re.compile(r'\$\s*(\d[\d,]*(?:\.\d{1,2})?)')
+
+    resultados = []
+    for nombre_tienda, query in tiendas:
+        try:
+            snippet = await buscar_web(query)
+            precios_raw = patron_precio.findall(snippet)
+            precios = []
+            for p in precios_raw:
+                try:
+                    val = float(p.replace(",", ""))
+                    # Filtrar precios razonables (evitar años, IDs, etc.)
+                    if 5 <= val <= 10_000:
+                        precios.append(val)
+                except ValueError:
+                    pass
+
+            if precios:
+                precio_min = min(precios)
+                desglose = calcular_precio_imporusa(precio_min)
+                # Extraer solo la línea de precio final del desglose
+                linea_final = ""
+                for linea in desglose.splitlines():
+                    if "Precio final estimado" in linea:
+                        linea_final = linea.replace("*", "").replace("Precio final estimado:", "").strip()
+                        break
+                resultados.append(
+                    f"🏪 *{nombre_tienda}*: precio en tienda ${precio_min:,.2f} USD\n"
+                    f"   ➤ Con Imporusa: {linea_final}"
+                )
+            else:
+                resultados.append(f"🏪 *{nombre_tienda}*: precio no encontrado en la búsqueda")
+        except Exception as e:
+            logger.warning(f"[COMPARAR] Error consultando {nombre_tienda}: {e}")
+            resultados.append(f"🏪 *{nombre_tienda}*: no disponible en este momento")
+
+    if not any("Con Imporusa" in r for r in resultados):
+        return (
+            f"No pude encontrar precios claros para *{producto}* en este momento. "
+            "Comparte el link del producto y te doy la cotización exacta. 🔍"
+        )
+
+    encabezado = f"📊 *Comparativa de precios — {producto}*\n(Precios incluyen tax FL 7% + comisión Imporusa + envío Miami→Cali)\n"
+    return encabezado + "\n\n".join(resultados)
+
+
 async def obtener_imagen_producto(url: str) -> bytes | None:
     """
     Descarga la imagen principal de una página de producto.

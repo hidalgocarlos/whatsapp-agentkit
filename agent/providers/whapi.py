@@ -2,6 +2,7 @@
 # Generado por AgentKit
 
 import os
+import base64
 import logging
 import httpx
 from fastapi import Request
@@ -16,6 +17,7 @@ class ProveedorWhapi(ProveedorWhatsApp):
     def __init__(self):
         self.token = os.getenv("WHAPI_TOKEN")
         self.url_envio = "https://gate.whapi.cloud/messages/text"
+        self.url_imagen = "https://gate.whapi.cloud/messages/image"
 
     async def parsear_webhook(self, request: Request) -> list[MensajeEntrante]:
         """Parsea el payload de Whapi.cloud — soporta texto, links y documentos."""
@@ -87,4 +89,26 @@ class ProveedorWhapi(ProveedorWhatsApp):
             )
             if r.status_code != 200:
                 logger.error(f"Error Whapi: {r.status_code} — {r.text}")
+            return r.status_code == 200
+
+    async def enviar_imagen(self, telefono: str, imagen_bytes: bytes, caption: str = "") -> bool:
+        """Envía una imagen via Whapi.cloud usando base64."""
+        if not self.token:
+            logger.warning("WHAPI_TOKEN no configurado — imagen no enviada")
+            return False
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+        }
+        imagen_b64 = base64.b64encode(imagen_bytes).decode("utf-8")
+        payload = {
+            "to": telefono,
+            "media": f"data:image/jpeg;base64,{imagen_b64}",
+        }
+        if caption:
+            payload["caption"] = caption
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(self.url_imagen, json=payload, headers=headers)
+            if r.status_code != 200:
+                logger.error(f"Error Whapi (imagen): {r.status_code} — {r.text[:200]}")
             return r.status_code == 200

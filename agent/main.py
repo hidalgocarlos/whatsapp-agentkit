@@ -17,7 +17,11 @@ from fastapi.responses import PlainTextResponse
 from dotenv import load_dotenv
 
 from agent.brain import generar_respuesta, cargar_knowledge
-from agent.memory import inicializar_db, guardar_mensaje, obtener_historial
+from agent.memory import (
+    inicializar_db, guardar_mensaje, obtener_historial,
+    registrar_cotizacion, obtener_cotizaciones_para_seguimiento,
+    marcar_seguimiento_enviado, marcar_cotizacion_confirmada,
+)
 from agent.providers import obtener_proveedor
 from agent.tools import enviar_cotizacion_email, crear_prospecto_notion
 from agent.session_logger import (
@@ -53,12 +57,51 @@ MENSAJE_ERROR_CLIENTE = (
 MAX_REINTENTOS = 2
 
 
+# Horas de espera antes de enviar follow-up (configurable en Railway)
+FOLLOWUP_HORAS_ESPERA = int(os.getenv("FOLLOWUP_HORAS_ESPERA", 24))
+
+
+async def cron_seguimientos():
+    """Cron job: cada hora revisa cotizaciones sin respuesta y envía follow-up."""
+    while True:
+        await asyncio.sleep(3600)  # Revisar cada hora
+        try:
+            pendientes = await obtener_cotizaciones_para_seguimiento(FOLLOWUP_HORAS_ESPERA)
+            if not pendientes:
+                logger.info("[FOLLOWUP] Sin cotizaciones pendientes")
+                continue
+            logger.info(f"[FOLLOWUP] {len(pendientes)} cotizaciones para follow-up")
+            for cot in pendientes:
+                try:
+                    msg = (
+                        f"Hola {cot.nombre.split()[0]}! 👋\n\n"
+                        f"Soy Ana de Imporusa. Te escribo porque hace un momento te enviamos "
+                        f"la cotización de *{cot.producto}* al correo {cot.email}.\n\n"
+                        f"¿Pudiste revisarla? ¿Tienes alguna duda o quieres que te ayude "
+                        f"a confirmar el pedido? 😊\n\n"
+                        f"Estamos aquí para ayudarte. ¡Solo dinos!"
+                    )
+                    exito = await proveedor.enviar_mensaje(cot.telefono, msg)
+                    if exito:
+                        await marcar_seguimiento_enviado(cot.id)
+                        logger.info(f"[FOLLOWUP] ✅ Seguimiento enviado a {cot.nombre} ({cot.telefono})")
+                    else:
+                        logger.warning(f"[FOLLOWUP] ❌ No se pudo enviar a {cot.telefono}")
+                except Exception as e_cot:
+                    logger.error(f"[FOLLOWUP] Error enviando a {cot.telefono}: {e_cot}")
+        except Exception as e:
+            logger.error(f"[FOLLOWUP] Error en cron: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicializa la base de datos al arrancar el servidor."""
     await inicializar_db()
     cargar_knowledge()
+    # Lanzar cron de follow-up en background
+    asyncio.create_task(cron_seguimientos())
     logger.info("Base de datos inicializada")
+    logger.info(f"[FOLLOWUP] Cron de seguimiento activo — espera {FOLLOWUP_HORAS_ESPERA}h")
     logger.info(f"Servidor AgentKit corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
     yield
@@ -155,6 +198,14 @@ async def procesar_mensaje(telefono: str, texto: str):
 async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, inicio_total: float):
     """Lógica interna de procesamiento — puede lanzar excepciones para retry."""
     log_mensaje_cliente(telefono, texto)
+
+    # Si el cliente escribe después de cotizarle, marcar como confirmado (lead caliente)
+    if any(p in texto.lower() for p in ["confirmo", "quiero pedirlo", "dale", "vamos", "si lo quiero", "me lo traes", "hágale", "hagale", "listo", "procede"]):
+        try:
+            await marcar_cotizacion_confirmada(telefono)
+            logger.info(f"[FOLLOWUP] Cotización marcada como confirmada para {telefono}")
+        except Exception:
+            pass
 
     # Obtener historial ANTES de guardar el mensaje actual
     historial = await obtener_historial(telefono)
@@ -284,6 +335,18 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
                 + "\n".join(lineas_chat)
             )
 
+            # ── FOLLOW-UP — registrar para seguimiento automático ──
+            try:
+                await registrar_cotizacion(
+                    telefono=telefono,
+                    nombre=nombre.strip(),
+                    producto=producto.strip(),
+                    email=email_cliente.strip(),
+                )
+                logger.info(f"[FOLLOWUP] Cotización registrada para seguimiento: {nombre.strip()}")
+            except Exception as e_fu:
+                logger.error(f"[FOLLOWUP] Error registrando: {e_fu}")
+
             logger.info(f"[NOTION] Guardando prospecto: {nombre.strip()} — {email_cliente.strip()}")
             try:
                 exito_notion = await crear_prospecto_notion(
@@ -316,6 +379,21 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
     await guardar_mensaje(telefono, "assistant", respuesta)
 
     log_respuesta_ana(telefono, respuesta)
+
+    # ── Imagen del producto — si el usuario envió un link, mostrar la imagen primero ──
+    urls_en_mensaje = re.findall(r'https?://[^\s]+', texto)
+    if urls_en_mensaje:
+        url_producto = urls_en_mensaje[0]
+        try:
+            from agent.tools import obtener_imagen_producto
+            imagen_bytes = await obtener_imagen_producto(url_producto)
+            if imagen_bytes:
+                logger.info(f"[IMAGEN] Enviando imagen del producto a {telefono}")
+                await proveedor.enviar_imagen(telefono, imagen_bytes)
+            else:
+                logger.info(f"[IMAGEN] No se encontró imagen en {url_producto}")
+        except Exception as e_img:
+            logger.warning(f"[IMAGEN] Error enviando imagen: {e_img}")
 
     # Enviar respuesta por WhatsApp via el proveedor
     await proveedor.enviar_mensaje(telefono, respuesta)

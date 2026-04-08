@@ -7,10 +7,10 @@ por número de teléfono usando SQLite (local) o PostgreSQL (producción).
 """
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Text, DateTime, select, Integer
+from sqlalchemy import String, Text, DateTime, select, Integer, Boolean, update
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -39,6 +39,20 @@ class Mensaje(Base):
     role: Mapped[str] = mapped_column(String(20))  # "user" o "assistant"
     content: Mapped[str] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class Cotizacion(Base):
+    """Registro de cotizaciones para el sistema de follow-up automático."""
+    __tablename__ = "cotizaciones"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    telefono: Mapped[str] = mapped_column(String(50), index=True)
+    nombre: Mapped[str] = mapped_column(String(200))
+    producto: Mapped[str] = mapped_column(Text)
+    email: Mapped[str] = mapped_column(String(200))
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    seguimiento_enviado: Mapped[bool] = mapped_column(Boolean, default=False)
+    confirmado: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 async def inicializar_db():
@@ -98,4 +112,62 @@ async def limpiar_historial(telefono: str):
         mensajes = result.scalars().all()
         for msg in mensajes:
             session.delete(msg)
+        await session.commit()
+
+
+# ── Funciones de follow-up ────────────────────────────────────────────────────
+
+async def registrar_cotizacion(telefono: str, nombre: str, producto: str, email: str):
+    """Registra una cotización enviada para hacer seguimiento posterior."""
+    async with async_session() as session:
+        cot = Cotizacion(
+            telefono=telefono,
+            nombre=nombre,
+            producto=producto,
+            email=email,
+            timestamp=datetime.now(timezone.utc),
+            seguimiento_enviado=False,
+            confirmado=False,
+        )
+        session.add(cot)
+        await session.commit()
+
+
+async def obtener_cotizaciones_para_seguimiento(horas_espera: int = 24) -> list[Cotizacion]:
+    """
+    Retorna cotizaciones que llevan más de `horas_espera` sin confirmar
+    y sin seguimiento enviado aún.
+    """
+    limite = datetime.now(timezone.utc) - timedelta(hours=horas_espera)
+    async with async_session() as session:
+        query = (
+            select(Cotizacion)
+            .where(Cotizacion.seguimiento_enviado == False)
+            .where(Cotizacion.confirmado == False)
+            .where(Cotizacion.timestamp <= limite)
+        )
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+
+async def marcar_seguimiento_enviado(cotizacion_id: int):
+    """Marca una cotización como 'seguimiento enviado'."""
+    async with async_session() as session:
+        await session.execute(
+            update(Cotizacion)
+            .where(Cotizacion.id == cotizacion_id)
+            .values(seguimiento_enviado=True)
+        )
+        await session.commit()
+
+
+async def marcar_cotizacion_confirmada(telefono: str):
+    """Marca todas las cotizaciones pendientes de un cliente como confirmadas."""
+    async with async_session() as session:
+        await session.execute(
+            update(Cotizacion)
+            .where(Cotizacion.telefono == telefono)
+            .where(Cotizacion.confirmado == False)
+            .values(confirmado=True)
+        )
         await session.commit()
