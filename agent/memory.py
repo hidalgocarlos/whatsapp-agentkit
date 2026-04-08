@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy import String, Text, DateTime, select, Integer, Boolean, update
+from sqlalchemy import String, Text, DateTime, select, Integer, Boolean, update, delete
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -97,7 +97,7 @@ async def obtener_historial(telefono: str, limite: int = 20) -> list[dict]:
             .limit(limite)
         )
         result = await session.execute(query)
-        mensajes = result.scalars().all()
+        mensajes = list(result.scalars().all())
 
         # Invertir para orden cronológico (los más recientes están primero)
         mensajes.reverse()
@@ -111,11 +111,9 @@ async def obtener_historial(telefono: str, limite: int = 20) -> list[dict]:
 async def limpiar_historial(telefono: str):
     """Borra todo el historial de una conversación."""
     async with async_session() as session:
-        query = select(Mensaje).where(Mensaje.telefono == telefono)
-        result = await session.execute(query)
-        mensajes = result.scalars().all()
-        for msg in mensajes:
-            session.delete(msg)
+        await session.execute(
+            delete(Mensaje).where(Mensaje.telefono == telefono)
+        )
         await session.commit()
 
 
@@ -173,6 +171,8 @@ async def avanzar_etapa_seguimiento(cotizacion_id: int):
         result = await session.execute(select(Cotizacion).where(Cotizacion.id == cotizacion_id))
         cot = result.scalar_one_or_none()
         if not cot:
+            return
+        if cot.etapa_seguimiento >= 4:
             return
         intervalo = _INTERVALOS_SEGUIMIENTO.get(cot.etapa_seguimiento)
         cot.etapa_seguimiento = cot.etapa_seguimiento + 1

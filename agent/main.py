@@ -304,12 +304,12 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
             # Formato nuevo: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email
             _, nombre, producto, link, cantidad, email_cliente = partes
             formato_valido = True
-            logger.info(f"[COMANDO] Formato 6 campos OK")
+            logger.info("[COMANDO] Formato 6 campos OK")
         elif len(partes) == 7:
             # Formato legacy: ENVIAR_COTIZACION|nombre|producto|link|cantidad|email|telefono
             _, nombre, producto, link, cantidad, email_cliente, _ = partes
             formato_valido = True
-            logger.info(f"[COMANDO] Formato 7 campos (legacy) OK")
+            logger.info("[COMANDO] Formato 7 campos (legacy) OK")
         else:
             logger.error(
                 f"[COMANDO] FORMATO INVALIDO — esperaba 6 o 7 campos, recibí {len(partes)}. "
@@ -375,7 +375,7 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
                 f"Claude probablemente olvidó incluir el comando. Respuesta: {respuesta[:400]}"
             )
         else:
-            logger.info(f"[COMANDO] No se detectó ENVIAR_COTIZACION en la respuesta (normal — no era cotización)")
+            logger.info("[COMANDO] No se detectó ENVIAR_COTIZACION en la respuesta (normal — no era cotización)")
 
     # Guardar mensaje del usuario Y respuesta del agente en memoria
     await guardar_mensaje(telefono, "user", texto)

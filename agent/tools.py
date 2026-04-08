@@ -7,6 +7,7 @@ Funciones para cotizaciones, pedidos, leads, soporte post-venta y envío de emai
 """
 
 import os
+import re as _re
 import base64
 import yaml
 import logging
@@ -227,9 +228,6 @@ async def obtener_trm() -> str:
     except Exception as e:
         logger.error(f"[TRM] Error consultando TRM: {type(e).__name__}: {e}")
         return "Error al consultar la TRM. Intenta de nuevo en un momento."
-
-
-import re as _re
 
 
 async def comparar_precios(producto: str) -> str:
@@ -835,7 +833,7 @@ async def obtener_pagina(url: str) -> str:
             title_text = title.get_text().strip() if title else ""
 
             # Extraer texto limpio
-            lines = [l.strip() for l in soup.get_text(separator="\n").splitlines() if l.strip()]
+            lines = [line.strip() for line in soup.get_text(separator="\n").splitlines() if line.strip()]
             content = "\n".join(lines[:120])
 
             logger.info(f"Página obtenida: {url[:80]}")
