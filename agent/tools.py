@@ -288,6 +288,65 @@ async def obtener_imagen_producto(url: str) -> bytes | None:
     return None
 
 
+def calcular_precio_imporusa(precio_usd: float, cantidad: int = 1) -> str:
+    """
+    Calcula el precio final de un producto importado desde Miami a Cali.
+
+    Fórmula obligatoria:
+      1. precio_con_tax  = precio_usd * cantidad * 1.07   (tax FL 7%)
+      2. precio_imporusa = precio_con_tax * (1.10 ... 1.20)  (comisión 10-20%)
+      3. precio_final    = precio_imporusa + envío Miami → Cali
+
+    Retorna un desglose completo en texto listo para WhatsApp.
+    """
+    info = cargar_info_negocio()
+    cfg = info.get("precios", {})
+
+    TAX_FL       = cfg.get("tax_florida_pct",          0.07)
+    COM_MIN      = cfg.get("comision_min_pct",          0.10)
+    COM_MAX      = cfg.get("comision_max_pct",          0.20)
+    ENVIO_MIN    = cfg.get("envio_miami_cali_min_usd",  20)
+    ENVIO_MAX    = cfg.get("envio_miami_cali_max_usd",  50)
+
+    precio_base   = round(precio_usd * cantidad, 2)
+    tax           = round(precio_base * TAX_FL, 2)
+    precio_miami  = round(precio_base + tax, 2)
+
+    comision_min  = round(precio_miami * COM_MIN, 2)
+    comision_max  = round(precio_miami * COM_MAX, 2)
+
+    total_min     = round(precio_miami + comision_min + ENVIO_MIN, 2)
+    total_max     = round(precio_miami + comision_max + ENVIO_MAX, 2)
+
+    lineas = [
+        f"💰 *Desglose de precio Imporusa* ({cantidad} unidad{'es' if cantidad != 1 else ''})\n",
+        f"Precio en tienda (USD):          ${precio_base:>10,.2f}",
+        f"+ Tax Florida ({TAX_FL*100:.0f}%):            +${tax:>9,.2f}",
+        f"= Precio en Miami:               ${precio_miami:>10,.2f}\n",
+        f"+ Comisión Imporusa ({COM_MIN*100:.0f}%-{COM_MAX*100:.0f}%):  +${comision_min:,.2f} — +${comision_max:,.2f}",
+        f"+ Envío Miami → Cali:            +${ENVIO_MIN} — +${ENVIO_MAX} USD\n",
+        f"*Precio final estimado: ${total_min:,.2f} — ${total_max:,.2f} USD*",
+    ]
+
+    # Convertir a COP si hay TRM en cache
+    trm_val = None
+    if _trm_cache.get("valor"):
+        try:
+            trm_val = float(str(_trm_cache["valor"]).replace(",", ""))
+        except (ValueError, TypeError):
+            pass
+    if trm_val:
+        cop_min = int(total_min * trm_val)
+        cop_max = int(total_max * trm_val)
+        trm_str = _trm_cache["valor"]
+        lineas.append(
+            f"\nEn pesos (TRM {trm_str} COP/USD):\n"
+            f"*${cop_min:,} — ${cop_max:,} COP*"
+        )
+
+    return "\n".join(lineas)
+
+
 async def enviar_cotizacion_email(
     email_cliente: str,
     nombre_cliente: str,

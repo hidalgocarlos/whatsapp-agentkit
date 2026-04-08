@@ -81,6 +81,30 @@ TOOLS = [
             "properties": {},
             "required": []
         }
+    },
+    {
+        "name": "calcular_precio_imporusa",
+        "description": (
+            "Calcula el precio final de un producto para el cliente aplicando TODOS los costos "
+            "obligatorios: tax de Florida 7% + comisión Imporusa 10-20% + envío Miami → Cali. "
+            "SIEMPRE usa esta herramienta cuando tengas el precio en USD de un producto. "
+            "Nunca hagas el cálculo de cabeza — usa esta herramienta para dar el desglose completo."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "precio_usd": {
+                    "type": "number",
+                    "description": "Precio del producto en USD tal como aparece en la tienda (sin tax)"
+                },
+                "cantidad": {
+                    "type": "integer",
+                    "description": "Cantidad de unidades que pide el cliente",
+                    "default": 1
+                }
+            },
+            "required": ["precio_usd"]
+        }
     }
 ]
 
@@ -158,6 +182,12 @@ async def _ejecutar_herramienta(nombre: str, parametros: dict) -> str:
         return await obtener_pagina(parametros.get("url", ""))
     elif nombre == "obtener_trm":
         return await obtener_trm()
+    elif nombre == "calcular_precio_imporusa":
+        from agent.tools import calcular_precio_imporusa
+        return calcular_precio_imporusa(
+            precio_usd=float(parametros.get("precio_usd", 0)),
+            cantidad=int(parametros.get("cantidad", 1)),
+        )
     else:
         return f"Herramienta desconocida: {nombre}"
 

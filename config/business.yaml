@@ -24,6 +24,16 @@ servicios:
   comision: "Entre el 10% y el 20% sobre el valor del producto"
   pedido_minimo: "$300.000 COP"
 
+precios:
+  # Casillero en Miami, Florida → aplica sales tax del estado
+  tax_florida_pct: 0.07          # 7% sales tax obligatorio en Florida
+  # Comisión / utilidad de Imporusa sobre el precio con tax
+  comision_min_pct: 0.10         # 10% mínimo
+  comision_max_pct: 0.20         # 20% máximo
+  # Flete aéreo Miami → Cali, Colombia (USD por envío)
+  envio_miami_cali_min_usd: 20   # Artículos pequeños / livianos
+  envio_miami_cali_max_usd: 50   # Artículos medianos / pesados
+
 especialidades:
   - "Electrónica: laptops, tablets, smartphones, wearables"
   - "Ropa y moda"
