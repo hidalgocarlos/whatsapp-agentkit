@@ -19,7 +19,32 @@
       "Edit",
       "Glob",
       "Grep",
-      "mcp__ide__executeCode"
+      "mcp__ide__executeCode",
+      "Bash(gh api:*)",
+      "Bash(claude config:*)",
+      "Bash(chmod +x:*)",
+      "Bash(curl -s http://localhost:3000/v1/models)",
+      "Bash(curl -s http://localhost:3000/models)",
+      "mcp__claude_ai_Hugging_Face__space_search",
+      "WebSearch",
+      "Bash(gh search:*)",
+      "Bash(gh auth:*)",
+      "Bash(python -c ':*)",
+      "Skill(code-review:code-review)",
+      "Bash(curl -s -X GET \"https://api.notion.com/v1/databases/33b0343cda40802a8fd6fe3d7456499e\" -H \"Authorization: Bearer ntn_lv8764032646V4hFCtUIhtc65Zrw7cxppo9QRb54Fu85JG\" -H \"Notion-Version: 2022-06-28\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -X POST \"https://api.notion.com/v1/pages\" -H \"Authorization: Bearer ntn_lv8764032646V4hFCtUIhtc65Zrw7cxppo9QRb54Fu85JG\" -H \"Content-Type: application/json\" -H \"Notion-Version: 2022-06-28\" -d '{\"parent\":{\"database_id\":\"33b0343cda40802a8fd6fe3d7456499e\"},\"properties\":{\"Nombre\":{\"title\":[{\"text\":{\"content\":\"TEST - Borrar\"}}]},\"Email\":{\"email\":\"test@test.com\"},\"WhatsApp\":{\"phone_number\":\"573001234567\"},\"Producto\":{\"rich_text\":[{\"text\":{\"content\":\"Producto de prueba\"}}]},\"Estado\":{\"select\":{\"name\":\"Nuevo\"}},\"Fecha\":{\"date\":{\"start\":\"2026-04-07\"}},\"Texto\":{\"rich_text\":[{\"text\":{\"content\":\"Chat de prueba: Cliente dijo hola, Ana respondió bienvenido\"}}]}},\"children\":[{\"object\":\"block\",\"type\":\"paragraph\",\"paragraph\":{\"rich_text\":[{\"text\":{\"content\":\"Conversación completa aquí\"}}]}}]}')",
+      "Bash(curl -s -X POST \"https://api.notion.com/v1/databases/33b0343cda40802a8fd6fe3d7456499e/query\" -H \"Authorization: Bearer ntn_lv8764032646V4hFCtUIhtc65Zrw7cxppo9QRb54Fu85JG\" -H \"Content-Type: application/json\" -H \"Notion-Version: 2022-06-28\" -d '{\"filter\":{\"property\":\"Nombre\",\"title\":{\"equals\":\"TEST - Borrar\"}},\"page_size\":1}')",
+      "Bash(python -m json.tool)",
+      "Bash(curl -s -X PATCH \"https://api.notion.com/v1/pages/33b0343c-da40-816c-9544-dc943c19c78f\" -H \"Authorization: Bearer ntn_lv8764032646V4hFCtUIhtc65Zrw7cxppo9QRb54Fu85JG\" -H \"Content-Type: application/json\" -H \"Notion-Version: 2022-06-28\" -d '{\"in_trash\":true}')",
+      "Bash(python -c \"import sys,json;d=json.load\\(sys.stdin\\);print\\('Deleted' if d.get\\('in_trash'\\) else 'Failed'\\)\")",
+      "Bash(curl:*)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('agent/tools.py'\\).read\\(\\)\\); print\\('tools.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('agent/brain.py'\\).read\\(\\)\\); print\\('brain.py: OK'\\)\")",
+      "Bash(python -c \"import yaml; y=yaml.safe_load\\(open\\('config/prompts.yaml'\\)\\); print\\(f'prompts.yaml: OK — {len\\(y.get\\(\\\\\"system_prompt\\\\\",\\\\\"\\\\\"\\)\\)} chars'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('agent/tools.py', encoding='utf-8'\\).read\\(\\)\\); print\\('tools.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('agent/brain.py', encoding='utf-8'\\).read\\(\\)\\); print\\('brain.py: OK'\\)\")",
+      "Bash(python -c \"import yaml; y=yaml.safe_load\\(open\\('config/prompts.yaml', encoding='utf-8'\\)\\); print\\(f'prompts.yaml: OK — {len\\(y.get\\(\\\\\"system_prompt\\\\\",\\\\\"\\\\\"\\)\\)} chars'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('agent/main.py', encoding='utf-8'\\).read\\(\\)\\); print\\('main.py: OK'\\)\")"
     ]
   }
 }
