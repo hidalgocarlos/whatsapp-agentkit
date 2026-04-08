@@ -8,6 +8,7 @@ Funciona con cualquier proveedor (Whapi, Meta, Twilio) gracias a la capa de prov
 
 import os
 import re
+import uuid
 import asyncio
 import logging
 import time
@@ -20,10 +21,10 @@ from agent.brain import generar_respuesta, cargar_knowledge
 from agent.memory import (
     inicializar_db, guardar_mensaje, obtener_historial,
     registrar_cotizacion, obtener_cotizaciones_para_seguimiento,
-    marcar_seguimiento_enviado, marcar_cotizacion_confirmada,
+    avanzar_etapa_seguimiento, marcar_cotizacion_confirmada, marcar_email_abierto,
 )
 from agent.providers import obtener_proveedor
-from agent.tools import enviar_cotizacion_email, crear_prospecto_notion
+from agent.tools import enviar_cotizacion_email
 from agent.session_logger import (
     log_mensaje_cliente, log_respuesta_ana,
     log_cotizacion, log_error,
@@ -57,34 +58,61 @@ MENSAJE_ERROR_CLIENTE = (
 MAX_REINTENTOS = 2
 
 
-# Horas de espera antes de enviar follow-up (configurable en Railway)
-FOLLOWUP_HORAS_ESPERA = int(os.getenv("FOLLOWUP_HORAS_ESPERA", 24))
+# Mensajes de follow-up por etapa (0-3)
+_MENSAJES_FOLLOWUP = {
+    0: (
+        "Hola {nombre}! 👋\n\n"
+        "Soy Ana de Imporusa. Hace un momento te enviamos la cotización de "
+        "*{producto}* al correo {email}.\n\n"
+        "¿Pudiste revisarla? ¿Tienes alguna duda o quieres confirmar el pedido? 😊"
+    ),
+    1: (
+        "Hola {nombre}! ✋\n\n"
+        "Los precios en Amazon pueden cambiar cualquier día. Tu cotización de "
+        "*{producto}* sigue disponible.\n\n"
+        "¿Quieres que lo confirmemos antes de que suba el precio? 🚀"
+    ),
+    2: (
+        "Hola {nombre}! ⏰\n\n"
+        "Tu cotización de *{producto}* está por vencer.\n\n"
+        "Si quieres proceder, solo dime y lo pedimos hoy mismo. "
+        "¡Tenemos casillero en Miami listo para ti! 📦"
+    ),
+    3: (
+        "Hola {nombre}! 🌟\n\n"
+        "¿Cómo estás? ¿Sigues interesado en *{producto}* "
+        "o hay algo más en lo que Imporusa pueda ayudarte?\n\n"
+        "Estamos aquí cuando nos necesites 😊"
+    ),
+}
 
 
 async def cron_seguimientos():
-    """Cron job: cada hora revisa cotizaciones sin respuesta y envía follow-up."""
+    """Cron job: cada hora revisa cotizaciones con seguimiento pendiente (multi-etapa)."""
     while True:
         await asyncio.sleep(3600)  # Revisar cada hora
         try:
-            pendientes = await obtener_cotizaciones_para_seguimiento(FOLLOWUP_HORAS_ESPERA)
+            pendientes = await obtener_cotizaciones_para_seguimiento()
             if not pendientes:
                 logger.info("[FOLLOWUP] Sin cotizaciones pendientes")
                 continue
             logger.info(f"[FOLLOWUP] {len(pendientes)} cotizaciones para follow-up")
             for cot in pendientes:
                 try:
-                    msg = (
-                        f"Hola {cot.nombre.split()[0]}! 👋\n\n"
-                        f"Soy Ana de Imporusa. Te escribo porque hace un momento te enviamos "
-                        f"la cotización de *{cot.producto}* al correo {cot.email}.\n\n"
-                        f"¿Pudiste revisarla? ¿Tienes alguna duda o quieres que te ayude "
-                        f"a confirmar el pedido? 😊\n\n"
-                        f"Estamos aquí para ayudarte. ¡Solo dinos!"
+                    etapa = cot.etapa_seguimiento
+                    plantilla = _MENSAJES_FOLLOWUP.get(etapa, _MENSAJES_FOLLOWUP[3])
+                    msg = plantilla.format(
+                        nombre=cot.nombre.split()[0],
+                        producto=cot.producto,
+                        email=cot.email,
                     )
                     exito = await proveedor.enviar_mensaje(cot.telefono, msg)
                     if exito:
-                        await marcar_seguimiento_enviado(cot.id)
-                        logger.info(f"[FOLLOWUP] ✅ Seguimiento enviado a {cot.nombre} ({cot.telefono})")
+                        await avanzar_etapa_seguimiento(cot.id)
+                        logger.info(
+                            f"[FOLLOWUP] ✅ Etapa {etapa} enviada a {cot.nombre} "
+                            f"({cot.telefono})"
+                        )
                     else:
                         logger.warning(f"[FOLLOWUP] ❌ No se pudo enviar a {cot.telefono}")
                 except Exception as e_cot:
@@ -101,7 +129,7 @@ async def lifespan(app: FastAPI):
     # Lanzar cron de follow-up en background
     asyncio.create_task(cron_seguimientos())
     logger.info("Base de datos inicializada")
-    logger.info(f"[FOLLOWUP] Cron de seguimiento activo — espera {FOLLOWUP_HORAS_ESPERA}h")
+    logger.info("[FOLLOWUP] Cron de seguimiento activo (secuencia: 24h → 3d → 7d → 14d)")
     logger.info(f"Servidor AgentKit corriendo en puerto {PORT}")
     logger.info(f"Proveedor de WhatsApp: {proveedor.__class__.__name__}")
     yield
@@ -120,26 +148,25 @@ async def health_check():
     return {"status": "ok", "agente": "Ana - Imporusa", "service": "agentkit"}
 
 
-@app.get("/test-notion")
-async def test_notion():
-    """
-    Endpoint de diagnóstico — crea un prospecto de prueba en Notion.
-    Acceder: https://tu-app.up.railway.app/test-notion
-    """
+@app.get("/track/open/{tracking_id}")
+async def tracking_apertura(tracking_id: str):
+    """Pixel de tracking: registra cuando el cliente abre el email de cotización."""
+    logger.info(f"[TRACKING] Email abierto — tracking_id={tracking_id}")
     try:
-        resultado = await crear_prospecto_notion(
-            nombre="Test Diagnóstico",
-            email="test@imporusa.com",
-            whatsapp="573001234567",
-            producto="Producto de prueba — diagnóstico automático",
-            resumen_chat="Este es un prospecto de prueba creado desde /test-notion para verificar la conexión con Notion.",
-        )
-        if resultado:
-            return {"status": "ok", "notion": "Prospecto creado exitosamente. Revisa tu base de datos en Notion."}
-        else:
-            return {"status": "error", "notion": "La función retornó False. Revisa los logs para ver el error HTTP."}
+        await marcar_email_abierto(tracking_id)
     except Exception as e:
-        return {"status": "error", "notion": f"Excepción: {type(e).__name__}: {e}"}
+        logger.warning(f"[TRACKING] Error marcando apertura: {e}")
+    # Retornar pixel GIF 1×1 transparente
+    from fastapi.responses import Response
+    gif_1x1 = (
+        b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!"
+        b"\xf9\x04\x00\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01"
+        b"\x00\x00\x02\x02D\x01\x00;"
+    )
+    return Response(content=gif_1x1, media_type="image/gif", headers={
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+    })
 
 
 @app.get("/webhook")
@@ -292,7 +319,22 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
         if formato_valido:
             cant_int = int(cantidad.strip()) if cantidad.strip().isdigit() else 1
 
-            # ── EMAIL — fallo aquí NO cancela Notion ─────────────
+            # ── FOLLOW-UP — registrar ANTES del email para tener tracking_id ──
+            tracking_id = str(uuid.uuid4())
+            try:
+                await registrar_cotizacion(
+                    telefono=telefono,
+                    nombre=nombre.strip(),
+                    producto=producto.strip(),
+                    email=email_cliente.strip(),
+                    tracking_id=tracking_id,
+                )
+                logger.info(f"[FOLLOWUP] Cotización registrada: {nombre.strip()} — tracking={tracking_id}")
+            except Exception as e_fu:
+                logger.error(f"[FOLLOWUP] Error registrando: {e_fu}")
+                tracking_id = ""
+
+            # ── EMAIL ──────────────────────────────────────────────────────────
             exito_email = False
             try:
                 exito_email = await enviar_cotizacion_email(
@@ -302,6 +344,7 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
                     link=link.strip(),
                     cantidad=cant_int,
                     telefono_cliente=telefono,
+                    tracking_id=tracking_id,
                 )
                 logger.info(f"[EMAIL] Resultado: {'OK' if exito_email else 'FALLO'}")
             except Exception as e_email:
@@ -319,46 +362,6 @@ async def _procesar_mensaje_interno(telefono: str, texto: str, intento: int, ini
                 )
             except Exception as e_log:
                 logger.error(f"Error en log_cotizacion: {e_log}")
-
-            # ── NOTION — 100% independiente del email ────────────
-            lineas_chat = []
-            for msg in historial:
-                prefijo = "Cliente" if msg["role"] == "user" else "Ana"
-                lineas_chat.append(f"{prefijo}: {msg['content']}")
-            lineas_chat.append(f"Cliente: {texto}")
-            lineas_chat.append(f"Ana: {respuesta}")
-            resumen_completo = (
-                f"Producto: {producto.strip()}\n"
-                f"Link: {link.strip()}\n"
-                f"Cantidad: {cantidad.strip()}\n\n"
-                f"--- Conversacion WhatsApp ---\n"
-                + "\n".join(lineas_chat)
-            )
-
-            # ── FOLLOW-UP — registrar para seguimiento automático ──
-            try:
-                await registrar_cotizacion(
-                    telefono=telefono,
-                    nombre=nombre.strip(),
-                    producto=producto.strip(),
-                    email=email_cliente.strip(),
-                )
-                logger.info(f"[FOLLOWUP] Cotización registrada para seguimiento: {nombre.strip()}")
-            except Exception as e_fu:
-                logger.error(f"[FOLLOWUP] Error registrando: {e_fu}")
-
-            logger.info(f"[NOTION] Guardando prospecto: {nombre.strip()} — {email_cliente.strip()}")
-            try:
-                exito_notion = await crear_prospecto_notion(
-                    nombre=nombre.strip(),
-                    email=email_cliente.strip(),
-                    whatsapp=telefono,
-                    producto=producto.strip(),
-                    resumen_chat=resumen_completo,
-                )
-                logger.info(f"[NOTION] Resultado: {'OK' if exito_notion else 'FALLO'}")
-            except Exception as e_notion:
-                logger.error(f"[NOTION] Excepcion: {type(e_notion).__name__}: {e_notion}")
 
             if not exito_email:
                 respuesta += f"\n\n⚠️ Tuve un problema enviando el email a {email_cliente.strip()}. ¿Podrías verificar que el correo esté bien escrito?"

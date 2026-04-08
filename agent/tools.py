@@ -418,6 +418,7 @@ async def enviar_cotizacion_email(
     link: str,
     cantidad: int,
     telefono_cliente: str,
+    tracking_id: str = "",
 ) -> bool:
     """
     Envía la cotización al correo del cliente y una copia a Imporusa.
@@ -510,6 +511,15 @@ async def enviar_cotizacion_email(
         )
     else:
         producto_img_tag = ""
+
+    # ── Pixel de tracking de apertura (1×1 px invisible) ──
+    _app_url = os.getenv("APP_URL", "").rstrip("/")
+    tracking_pixel_html = (
+        f'<img src="{_app_url}/track/open/{tracking_id}" '
+        f'width="1" height="1" alt="" '
+        f'style="display:block;border:0;overflow:hidden;max-height:1px;max-width:1px;"/>'
+        if tracking_id and _app_url else ""
+    )
 
     html_cliente = f"""<!DOCTYPE html>
 <html lang="es">
@@ -667,6 +677,7 @@ async def enviar_cotizacion_email(
 </table>
 </td></tr>
 </table>
+      {tracking_pixel_html}
 </body>
 </html>
 """
@@ -833,108 +844,3 @@ async def obtener_pagina(url: str) -> str:
     except Exception as e:
         logger.error(f"Error obteniendo página {url}: {e}")
         return f"No se pudo acceder a la página: {e}"
-
-
-async def crear_prospecto_notion(
-    nombre: str,
-    email: str,
-    whatsapp: str,
-    producto: str,
-    resumen_chat: str = "",
-) -> bool:
-    """
-    Crea un nuevo prospecto en la base de datos de Notion.
-    Se llama automáticamente cuando Ana recopila todos los datos de cotización.
-    """
-    notion_token = os.getenv("NOTION_TOKEN", "")
-    notion_db = os.getenv("NOTION_DB_ID", "")
-
-    if not notion_token or not notion_db:
-        logger.warning("NOTION_TOKEN o NOTION_DB_ID no configurados — prospecto no guardado")
-        return False
-
-    headers = {
-        "Authorization": f"Bearer {notion_token}",
-        "Content-Type": "application/json",
-        "Notion-Version": "2022-06-28",
-    }
-
-    # Truncar resumen para la propiedad "Texto" (rich_text máximo 2000 chars)
-    texto_propiedad = resumen_chat[:2000] if resumen_chat else ""
-
-    payload = {
-        "parent": {"database_id": notion_db},
-        "properties": {
-            "Nombre": {
-                "title": [{"text": {"content": nombre}}]
-            },
-            "Email": {
-                "email": email
-            },
-            "WhatsApp": {
-                "phone_number": whatsapp.replace("@s.whatsapp.net", "").replace("+", "")
-            },
-            "Producto": {
-                "rich_text": [{"text": {"content": producto[:200]}}]
-            },
-            "Estado": {
-                "select": {"name": "Nuevo"}
-            },
-            "Fecha": {
-                "date": {"start": datetime.now().strftime("%Y-%m-%d")}
-            },
-            "Texto": {
-                "rich_text": [{"text": {"content": texto_propiedad}}] if texto_propiedad else []
-            },
-        },
-    }
-
-    # Agregar resumen del chat como contenido de la página
-    # Notion limita cada bloque a 2000 caracteres, así que dividimos en chunks
-    if resumen_chat:
-        bloques = []
-        # Dividir en trozos de máximo 2000 caracteres sin cortar palabras
-        texto_restante = resumen_chat
-        while texto_restante:
-            if len(texto_restante) <= 2000:
-                trozo = texto_restante
-                texto_restante = ""
-            else:
-                # Buscar el último salto de línea antes del límite
-                corte = texto_restante[:2000].rfind("\n")
-                if corte < 0:
-                    # No hay salto de línea — cortar en el último espacio
-                    corte = texto_restante[:2000].rfind(" ")
-                if corte < 0:
-                    # Sin espacios ni saltos — cortar en el límite duro
-                    corte = 2000
-                trozo = texto_restante[:corte]
-                texto_restante = texto_restante[corte:].lstrip()
-
-            bloques.append({
-                "object": "block",
-                "type": "paragraph",
-                "paragraph": {
-                    "rich_text": [{"text": {"content": trozo}}]
-                }
-            })
-        payload["children"] = bloques
-
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            logger.info(f"[NOTION] Enviando prospecto: {nombre} | Email: {email} | Producto: {producto[:50]} | Texto: {len(texto_propiedad)} chars | Children: {len(payload.get('children', []))} bloques")
-            r = await client.post(
-                "https://api.notion.com/v1/pages",
-                headers=headers,
-                json=payload,
-            )
-            if r.status_code == 200:
-                page_id = r.json().get("id", "?")
-                logger.info(f"[NOTION] Prospecto creado OK: {nombre} — page_id={page_id}")
-                return True
-            else:
-                logger.error(f"[NOTION] Error HTTP {r.status_code}: {r.text[:500]}")
-                return False
-    except Exception as e:
-        logger.error(f"[NOTION] Excepcion: {type(e).__name__}: {e}")
-        return False

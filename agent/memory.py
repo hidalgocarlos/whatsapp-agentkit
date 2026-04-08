@@ -8,6 +8,7 @@ por número de teléfono usando SQLite (local) o PostgreSQL (producción).
 
 import os
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import String, Text, DateTime, select, Integer, Boolean, update
@@ -51,7 +52,10 @@ class Cotizacion(Base):
     producto: Mapped[str] = mapped_column(Text)
     email: Mapped[str] = mapped_column(String(200))
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
-    seguimiento_enviado: Mapped[bool] = mapped_column(Boolean, default=False)
+    etapa_seguimiento: Mapped[int] = mapped_column(Integer, default=0)   # 0..4 — 4 = sin más toques
+    proximo_seguimiento: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    email_abierto: Mapped[bool] = mapped_column(Boolean, default=False)
+    tracking_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     confirmado: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -117,8 +121,8 @@ async def limpiar_historial(telefono: str):
 
 # ── Funciones de follow-up ────────────────────────────────────────────────────
 
-async def registrar_cotizacion(telefono: str, nombre: str, producto: str, email: str):
-    """Registra una cotización enviada para hacer seguimiento posterior."""
+async def registrar_cotizacion(telefono: str, nombre: str, producto: str, email: str, tracking_id: str = ""):
+    """Registra una cotización y programa el primer seguimiento en 24 horas."""
     async with async_session() as session:
         cot = Cotizacion(
             telefono=telefono,
@@ -126,37 +130,63 @@ async def registrar_cotizacion(telefono: str, nombre: str, producto: str, email:
             producto=producto,
             email=email,
             timestamp=datetime.now(timezone.utc),
-            seguimiento_enviado=False,
+            etapa_seguimiento=0,
+            proximo_seguimiento=datetime.now(timezone.utc) + timedelta(hours=24),
+            email_abierto=False,
+            tracking_id=tracking_id or None,
             confirmado=False,
         )
         session.add(cot)
         await session.commit()
 
 
-async def obtener_cotizaciones_para_seguimiento(horas_espera: int = 24) -> list[Cotizacion]:
+async def obtener_cotizaciones_para_seguimiento() -> list[Cotizacion]:
     """
-    Retorna cotizaciones que llevan más de `horas_espera` sin confirmar
-    y sin seguimiento enviado aún.
+    Retorna cotizaciones cuyo próximo seguimiento ya venció,
+    con menos de 4 etapas enviadas y sin confirmar.
     """
-    limite = datetime.now(timezone.utc) - timedelta(hours=horas_espera)
+    ahora = datetime.now(timezone.utc)
     async with async_session() as session:
         query = (
             select(Cotizacion)
-            .where(Cotizacion.seguimiento_enviado == False)
             .where(Cotizacion.confirmado == False)
-            .where(Cotizacion.timestamp <= limite)
+            .where(Cotizacion.etapa_seguimiento < 4)
+            .where(Cotizacion.proximo_seguimiento.isnot(None))
+            .where(Cotizacion.proximo_seguimiento <= ahora)
         )
         result = await session.execute(query)
         return list(result.scalars().all())
 
 
-async def marcar_seguimiento_enviado(cotizacion_id: int):
-    """Marca una cotización como 'seguimiento enviado'."""
+# Tiempo de espera entre etapas de follow-up
+_INTERVALOS_SEGUIMIENTO = {
+    0: timedelta(hours=48),   # 1er toque → esperar 2 días para el 2do
+    1: timedelta(hours=96),   # 2do toque → esperar 4 días para el 3ro
+    2: timedelta(hours=168),  # 3er toque → esperar 7 días para el 4to
+    # etapa 3 → último toque, no hay siguiente
+}
+
+
+async def avanzar_etapa_seguimiento(cotizacion_id: int):
+    """Incrementa la etapa y programa el próximo seguimiento según los intervalos."""
+    async with async_session() as session:
+        result = await session.execute(select(Cotizacion).where(Cotizacion.id == cotizacion_id))
+        cot = result.scalar_one_or_none()
+        if not cot:
+            return
+        intervalo = _INTERVALOS_SEGUIMIENTO.get(cot.etapa_seguimiento)
+        cot.etapa_seguimiento = cot.etapa_seguimiento + 1
+        cot.proximo_seguimiento = datetime.now(timezone.utc) + intervalo if intervalo else None
+        await session.commit()
+
+
+async def marcar_email_abierto(tracking_id: str):
+    """Registra que el cliente abrió el email de cotización."""
     async with async_session() as session:
         await session.execute(
             update(Cotizacion)
-            .where(Cotizacion.id == cotizacion_id)
-            .values(seguimiento_enviado=True)
+            .where(Cotizacion.tracking_id == tracking_id)
+            .values(email_abierto=True)
         )
         await session.commit()
 
