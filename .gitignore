@@ -38,9 +38,6 @@ Thumbs.db
 *.swo
 *~
 
-# Docker
-.dockerignore
-
 # Node
 node_modules/
 
